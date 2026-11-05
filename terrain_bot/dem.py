@@ -4,6 +4,8 @@
   bathymetry, ice-sheet surface), sampled every 0.25 degrees via NOAA ERDDAP.
 * Moon: NASA LRO LOLA gridded data record LDEM_4 (4 pixels/degree), heights
   relative to the 1737.4 km reference sphere.
+* Mars: NASA MGS MOLA mission experiment gridded data record MEGDR (4
+  pixels/degree), heights relative to the MOLA areoid.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import spearmanr
 
-from .bodies import EARTH, MOON
+from .bodies import BODIES
 from .heightmap import Heightmap, heightmap_from_dem
 
 DEM_DIR = Path(__file__).resolve().parent.parent / "data" / "dem"
@@ -55,6 +57,16 @@ DEM_SOURCES = {
         ),
         citation="Smith, D. E. et al., LRO LOLA Gridded Data Record LDEM_4, NASA PDS, 2017",
     ),
+    "mars": DemSource(
+        body="mars",
+        name="NASA MGS MOLA MEGDR (4 px/deg)",
+        filename="mars_mola_megdr4.npz",
+        url=(
+            "https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/mgsl_300x/"
+            "meg004/megt90n000cb.img"
+        ),
+        citation="Smith, D. E. et al., MGS MOLA Mission Experiment Gridded Data Record, NASA PDS, 2003",
+    ),
 }
 
 
@@ -87,10 +99,19 @@ def _moon_from_img(blob: bytes) -> tuple[np.ndarray, tuple, tuple]:
     return np.roll(metres, 720, axis=1), (-90.0, 90.0), (-180.0, 180.0)
 
 
+def _mars_from_img(blob: bytes) -> tuple[np.ndarray, tuple, tuple]:
+    metres = np.frombuffer(blob, dtype=">i2").reshape(720, 1440).astype(np.int16)
+    # MEGDR columns start at 0 deg E; roll so the grid runs from -180 to 180.
+    return np.roll(metres, 720, axis=1), (-90.0, 90.0), (-180.0, 180.0)
+
+
+_PARSERS = {"earth": _earth_from_netcdf, "moon": _moon_from_img, "mars": _mars_from_img}
+
+
 def download_dem(body: str, dest_dir: Path = DEM_DIR) -> Path:
     src = DEM_SOURCES[body]
     blob = _fetch(src.url)
-    elev, lat_range, lon_range = (_earth_from_netcdf if body == "earth" else _moon_from_img)(blob)
+    elev, lat_range, lon_range = _PARSERS[body](blob)
     dest_dir.mkdir(parents=True, exist_ok=True)
     path = dest_dir / src.filename
     np.savez_compressed(path, elevation=elev, lat_range=lat_range, lon_range=lon_range)
@@ -110,7 +131,57 @@ def load_dem(body: str, dem_dir: Path = DEM_DIR) -> Heightmap:
         elev = f["elevation"]
         lat_range = tuple(float(x) for x in f["lat_range"])
         lon_range = tuple(float(x) for x in f["lon_range"])
-    return heightmap_from_dem(elev, EARTH if body == "earth" else MOON, lat_range, lon_range, src.name)
+    return heightmap_from_dem(elev, BODIES[body], lat_range, lon_range, src.name)
+
+
+def _isotonic(y: np.ndarray, w: np.ndarray) -> np.ndarray:
+    """Weighted pool-adjacent-violators: the closest non-decreasing sequence to ``y``."""
+    vals, wts, sizes = [], [], []
+    for yi, wi in zip(y, w):
+        vals.append(float(yi))
+        wts.append(float(wi))
+        sizes.append(1)
+        while len(vals) > 1 and vals[-2] > vals[-1]:
+            wsum = wts[-2] + wts[-1]
+            merged = (vals[-2] * wts[-2] + vals[-1] * wts[-1]) / wsum
+            size = sizes[-2] + sizes[-1]
+            del vals[-1], wts[-1], sizes[-1]
+            vals[-1], wts[-1], sizes[-1] = merged, wsum, size
+    return np.repeat(vals, sizes)
+
+
+def fit_image_to_dem(image_hm: Heightmap, dem_hm: Heightmap) -> Heightmap:
+    """Re-calibrate an image with a brightness -> elevation curve learned from measured data.
+
+    For every brightness level the median measured elevation of the pixels with
+    that brightness is taken, then the curve is forced to rise with brightness.
+    This undoes clipping and non-linear encodings, but cannot fix an image whose
+    brightness isn't height (shaded relief).
+    """
+    rows, cols = np.nonzero(image_hm.valid)
+    gray = np.round(image_hm.gray[rows, cols])
+    real = dem_hm.elevation[dem_hm.pixels_of(image_hm.lats[rows], image_hm.lons[cols])]
+    ok = np.isfinite(real)
+    gray, real = gray[ok], real[ok]
+
+    levels, inverse, counts = np.unique(gray, return_inverse=True, return_counts=True)
+    medians = np.array([np.median(real[inverse == i]) for i in range(levels.size)])
+    fitted = _isotonic(medians, counts)
+
+    elevation = np.where(image_hm.valid, np.interp(image_hm.gray, levels, fitted), np.nan)
+    return Heightmap(
+        body=image_hm.body,
+        gray=image_hm.gray,
+        valid=image_hm.valid,
+        elevation=elevation,
+        lat_range=image_hm.lat_range,
+        lon_range=image_hm.lon_range,
+        gray_min=image_hm.gray_min,
+        gray_max=image_hm.gray_max,
+        source="image-fit",
+        source_name=f"{image_hm.source_name} fitted to {dem_hm.source_name.split(' (')[0]}",
+        lut=(levels, fitted),
+    )
 
 
 def compare_to_dem(image_hm: Heightmap, dem_hm: Heightmap) -> dict:

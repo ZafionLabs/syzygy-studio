@@ -11,6 +11,8 @@ import numpy as np
 from .heightmap import Heightmap, haversine_km
 from .matcher import Match, TerrainMatcher
 
+CMAPS = {"earth": "gist_earth", "moon": "cividis", "mars": "copper"}
+
 
 def calibration_check(hm: Heightmap) -> dict:
     """Compare the map's brightest/darkest pixels with the real landmark positions."""
@@ -24,6 +26,7 @@ def calibration_check(hm: Heightmap) -> dict:
             [body.min_elevation_m, body.max_elevation_m] if hm.source == "image" else [hm.gray_min, hm.gray_max]
         ),
         "metres_per_gray_level": body.relief_m / (hm.gray_max - hm.gray_min) if hm.source == "image" else None,
+        "measured_range_m": [float(np.nanmin(hm.elevation)), float(np.nanmax(hm.elevation))],
         "pixel_size_km": list(hm.km_per_px),
         "source": hm.source,
         "source_name": hm.source_name,
@@ -57,6 +60,13 @@ def format_calibration(check: dict) -> str:
             f"{lo:,.0f} m .. {hi:,.0f} m ({check['metres_per_gray_level']:.1f} m per gray level, datum: {check['datum']})"
         )
         what = {"highest": "lightest pixel", "lowest": "darkest pixel"}
+    elif check["source"] == "image-fit":
+        lo, hi = check["measured_range_m"]
+        head = (
+            f"{check['body']} ({check['source_name']}): brightness mapped through a curve fitted to measured data, "
+            f"{lo:,.0f} m .. {hi:,.0f} m (datum: {check['datum']})"
+        )
+        what = {"highest": "highest pixel", "lowest": "lowest pixel"}
     else:
         head = (
             f"{check['body']} ({check['source_name']}): measured elevations {lo:,.0f} m .. {hi:,.0f} m "
@@ -136,6 +146,12 @@ def write_json(matcher: TerrainMatcher, matches: list[Match], checks: list[dict]
     path.write_text(json.dumps(payload, indent=2))
 
 
+def _pair_maps(matcher: TerrainMatcher, matches: list[Match]) -> tuple[Heightmap, Heightmap]:
+    if matches:
+        return matcher.side(matches[0].a.body).hm, matcher.side(matches[0].b.body).hm
+    return matcher.a.hm, matcher.b.hm
+
+
 def plot_matches(matcher: TerrainMatcher, matches: list[Match], path: Path) -> None:
     import matplotlib
 
@@ -143,8 +159,8 @@ def plot_matches(matcher: TerrainMatcher, matches: list[Match], path: Path) -> N
     import matplotlib.pyplot as plt
     from matplotlib.patches import ConnectionPatch
 
-    sides = (matcher.a.hm, matcher.b.hm)
-    cmaps = ("gist_earth", "cividis")
+    sides = _pair_maps(matcher, matches)
+    cmaps = tuple(CMAPS.get(hm.body.name.lower(), "viridis") for hm in sides)
     fig, axes = plt.subplots(2, 1, figsize=(14, 13), constrained_layout=True)
     colors = plt.cm.tab20(np.linspace(0, 1, max(len(matches), 1)))
 
@@ -185,8 +201,9 @@ def plot_histograms(matcher: TerrainMatcher, matches: list[Match], path: Path) -
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(10, 5), constrained_layout=True)
-    bins = np.linspace(-11500, 11500, 116)
-    for side, color in ((matcher.a, "tab:blue"), (matcher.b, "tab:gray")):
+    bins = np.linspace(-11500, 22000, 168)
+    pair = [matcher.side(hm.body.name) for hm in _pair_maps(matcher, matches)]
+    for side, color in zip(pair, ("tab:blue", "tab:orange")):
         elev = side.raw[:, 0]
         ax.hist(elev, bins=bins, alpha=0.55, color=color, density=True, label=f"{side.hm.body.name} (area-weighted)")
     if matches:
@@ -203,7 +220,7 @@ def plot_histograms(matcher: TerrainMatcher, matches: list[Match], path: Path) -
 
 def write_report(matcher: TerrainMatcher, matches: list[Match], out_dir: Path, plots: bool = True) -> dict[str, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
-    checks = [calibration_check(matcher.a.hm), calibration_check(matcher.b.hm)]
+    checks = [calibration_check(hm) for hm in _pair_maps(matcher, matches)]
     paths = {"csv": out_dir / "matches.csv", "json": out_dir / "matches.json", "summary": out_dir / "summary.txt"}
     write_csv(matches, paths["csv"])
     write_json(matcher, matches, checks, paths["json"])

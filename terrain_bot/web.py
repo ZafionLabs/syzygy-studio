@@ -14,17 +14,20 @@ import numpy as np
 from PIL import Image
 
 from .dem import compare_to_dem
+from .features import compute_features
 from .explain import describe_surface, explain_query, explain_top, feature_label, feature_unit
 from .heightmap import Heightmap
 from .matcher import MODES, SURFACES, Match, MatchConfig, SitePoint, TerrainMatcher
 from .report import calibration_check
 
 STATIC = Path(__file__).resolve().parent / "static"
-CMAPS = {"earth": "gist_earth", "moon": "cividis"}
+CMAPS = {"earth": "gist_earth", "moon": "cividis", "mars": "copper"}
 SOURCE_LABELS = {
-    "dem": "Real measured data (NOAA ETOPO1 + NASA LRO LOLA)",
-    "images": "Your images (brightness calibrated to real extremes)",
+    "dem": "Real measured data (NOAA ETOPO1, NASA LOLA, NASA MOLA)",
+    "images": "Your images, darkest = lowest point, lightest = highest point",
+    "images-fit": "Your images, brightness curve fitted to real data",
 }
+SOURCE_ORDER = ("dem", "images", "images-fit")
 
 
 def _clean(obj):
@@ -82,18 +85,22 @@ def render_map_png(hm: Heightmap, cmap_name: str) -> bytes:
 class TerrainApp:
     """Serves one or more data sources; matchers and global results are built lazily and cached."""
 
-    def __init__(self, datasets: dict[str, tuple[Heightmap, Heightmap]], config: MatchConfig, default_source: str):
-        self.datasets = {k: {"earth": e, "moon": m} for k, (e, m) in datasets.items()}
+    def __init__(self, datasets: dict[str, dict[str, Heightmap]], config: MatchConfig, default_source: str):
+        self.datasets = {k: datasets[k] for k in sorted(datasets, key=lambda k: SOURCE_ORDER.index(k) if k in SOURCE_ORDER else 99)}
+        self._features: dict[tuple[str, str], object] = {}
         self.base_config = config
         self.default_source = default_source
         self._matchers: dict[tuple[str, str], TerrainMatcher] = {}
         self._top: dict[tuple, dict] = {}
         self._lock = threading.Lock()
         self._pngs = {
-            (src, body): render_map_png(hm, CMAPS[body]) for src, maps in self.datasets.items() for body, hm in maps.items()
+            (src, body): render_map_png(hm, CMAPS.get(body, "viridis"))
+            for src, maps in self.datasets.items()
+            for body, hm in maps.items()
         }
         self._info = self._build_info()
-        self.top(8, config.mode, default_source, "any")
+        bodies = list(self.datasets[default_source])
+        self.top(8, config.mode, default_source, "any", bodies[0], bodies[1])
 
     def _source(self, source: str | None) -> str:
         source = source or self.default_source
@@ -109,7 +116,11 @@ class TerrainApp:
             if key not in self._matchers:
                 cfg = MatchConfig(**{**self.base_config.__dict__, "mode": mode})
                 maps = self.datasets[source]
-                self._matchers[key] = TerrainMatcher(maps["earth"], maps["moon"], cfg)
+                for body, hm in maps.items():
+                    if (source, body) not in self._features:
+                        self._features[(source, body)] = compute_features(hm, cfg.scales_km)
+                fs = {body: self._features[(source, body)] for body in maps}
+                self._matchers[key] = TerrainMatcher(list(maps.values()), cfg, feature_sets=fs)
             return self._matchers[key]
 
     def _build_info(self) -> dict:
@@ -141,9 +152,12 @@ class TerrainApp:
                     "calibration": calibration_check(hm),
                 }
             out["sources"][src] = {"label": SOURCE_LABELS.get(src, src), "bodies": bodies}
-        if "images" in self.datasets and "dem" in self.datasets:
+        if "dem" in self.datasets:
             out["validation"] = [
-                compare_to_dem(self.datasets["images"][b], self.datasets["dem"][b]) for b in ("earth", "moon")
+                {**compare_to_dem(self.datasets[src][b], self.datasets["dem"][b]), "source": src}
+                for b in self.datasets["dem"]
+                for src in ("images", "images-fit")
+                if b in self.datasets.get(src, {})
             ]
         return out
 
@@ -171,21 +185,23 @@ class TerrainApp:
             "surface": describe_surface(hm.body.name, elev) if math.isfinite(elev) else "no data",
         }
 
-    def query(self, body: str, lat: float, lon: float, k: int, mode: str, source: str | None, surface: str) -> dict:
+    def query(self, body: str, lat: float, lon: float, k: int, mode: str, source: str | None, surface: str,
+              target: str | None = None) -> dict:
         m = self.matcher(mode, self._source(source))
-        origin, results = m.query(body, lat, lon, k, surface=surface)
+        target = target or m.default_target(body)
+        origin, results = m.query(body, lat, lon, k, surface=surface, target=target)
         return {
             "origin": _site(origin),
             "matches": [_match(x) for x in results],
-            "steps": explain_query(m, body, origin, results, surface),
+            "steps": explain_query(m, body, origin, results, surface, target),
         }
 
-    def top(self, n: int, mode: str, source: str | None, surface: str) -> dict:
+    def top(self, n: int, mode: str, source: str | None, surface: str, a: str, b: str) -> dict:
         source = self._source(source)
-        key = (source, mode, surface, n)
+        key = (source, mode, surface, n, a, b)
         if key not in self._top:
             m = self.matcher(mode, source)
-            matches = m.top_matches(n, surface=surface)
+            matches = m.top_matches(n, surface=surface, a=a, b=b)
             self._top[key] = {"matches": [_match(x) for x in matches], "steps": explain_top(m, matches, surface)}
         return self._top[key]
 
@@ -228,9 +244,11 @@ def make_handler(app: TerrainApp):
                     self._json(200, app.height(q["body"], float(q["lat"]), float(q["lon"]), source))
                 elif path == "/api/query":
                     k = min(int(q.get("k", 5)), 25)
-                    self._json(200, app.query(q["body"], float(q["lat"]), float(q["lon"]), k, mode, source, surface))
+                    self._json(200, app.query(q["body"], float(q["lat"]), float(q["lon"]), k, mode, source, surface,
+                                              q.get("target")))
                 elif path == "/api/top":
-                    self._json(200, app.top(min(int(q.get("n", 10)), 50), mode, source, surface))
+                    self._json(200, app.top(min(int(q.get("n", 10)), 50), mode, source, surface,
+                                            q.get("a", "earth"), q.get("b", "moon")))
                 else:
                     self._json(404, {"error": "not found"})
             except (ValueError, KeyError) as exc:

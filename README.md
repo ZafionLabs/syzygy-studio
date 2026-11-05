@@ -1,29 +1,35 @@
-# terrain-bot: Earth vs Moon look-alike terrain
+# terrain-bot: Earth, Moon and Mars look-alike terrain
 
-`terrain-bot` finds the places on Earth and the Moon whose terrain is most alike, using **real
-elevations**. Earth's underwater sea floor is included, and every answer comes with the
+`terrain-bot` finds the places on Earth, the Moon and Mars (any pair) whose terrain is most alike,
+using **real elevations**. Earth's underwater sea floor is included, and every answer comes with the
 step-by-step working.
 
 ## Data
 
-| Source (`--source`) | Earth | Moon |
-|---|---|---|
-| `dem` (default): real measured data in `data/dem/` | NOAA **ETOPO1** 1 arc-minute global relief (land + ocean bathymetry, ice surface), sampled every 0.25 deg | NASA **LRO LOLA LDEM_4**, 4 px/deg, heights relative to the 1737.4 km mean radius |
-| `images`: your grayscale maps in `data/` | lightest pixel = Mount Everest **+8,848.86 m**, darkest = Challenger Deep (Mariana Trench) **-10,935 m** | lightest = Selenean summit **+10,786 m**, darkest = Point Trieste (Antoniadi crater) **-9,129 m** |
+| Source (`--source`) | Earth | Moon | Mars |
+|---|---|---|---|
+| `dem` (default): real measured data in `data/dem/` | NOAA **ETOPO1** (land + ocean bathymetry), sampled every 0.25 deg | NASA **LRO LOLA LDEM_4**, 4 px/deg, relative to the 1737.4 km mean radius | NASA **MGS MOLA MEGDR**, 4 px/deg, relative to the MOLA areoid |
+| `images`: your grayscale maps in `data/`, lightest = highest, darkest = lowest | Everest **+8,848.86 m** / Challenger Deep **-10,935 m** | Selenean summit **+10,786 m** / Point Trieste (Antoniadi) **-9,129 m** | Olympus Mons **+21,229 m** / Badwater crater (Hellas) **-8,201 m** |
+| `images-fit`: the same images through a brightness curve learned from the DEM | | | |
 
-Run `python -m terrain_bot download-dem` to refetch the DEMs (about 3.5 MB total).
+`images-fit` takes, for every brightness level, the median measured elevation of the pixels with
+that brightness, then forces the curve to rise with brightness. Run
+`python -m terrain_bot download-dem` to refetch the DEMs (about 5 MB total).
 
 ### How accurate are the images? (`python -m terrain_bot validate`)
 
 Each calibrated image is compared pixel by pixel with the real data at the same coordinates:
 
-| Image | Rank correlation | Median error | Land/water |
-|---|---|---|---|
-| Moon | **0.989** | 400 m | n/a |
-| Earth | 0.670 | 1,517 m | agrees on 72% (the image says 86% is underwater; reality is 72%) |
+| Image | Rank correlation | Median error, lowest-to-highest scale | Median error, fitted curve | Notes |
+|---|---|---|---|---|
+| Moon | **0.989** | 400 m | **125 m** | faithful elevation map |
+| Mars | **0.980** | 5,533 m | **120 m** | clipped: brightness 255 covers everything above about +7 km and 0 covers everything below about -6.4 km |
+| Earth | 0.670 | 1,517 m | 401 m | shaded relief; land/water agrees on only 72% |
 
 The Moon image is a faithful elevation map: its lightest pixel is 13 km from the real Selenean
-summit. The Earth image is a shaded-relief picture, so brightness isn't height. Lowlands like the
+summit. The Mars image has the right geography but saturates at both ends, so Olympus Mons is as
+white as the Tharsis plains. The straight Olympus-to-Hellas scale therefore reads about 5 km too
+high, but the fitted curve fixes that except in the clipped areas, which the steps flag. The Earth image is a shaded-relief picture, so brightness isn't height. Lowlands like the
 Amazon are as dark as abyssal plains, and continental shelves are as bright as hills. No
 brightness-to-height curve can fix that, which is why measured data is the default. The image's
 bounds (84 N to 77 S) were fitted against ETOPO1 and stored in `data/earth_heightmap.json`.
@@ -34,8 +40,8 @@ bounds (84 N to 77 S) were fitted against ETOPO1 and stored in `data/earth_heigh
    and 7.6 km for the Moon with the DEMs.
 2. **Read the elevation.** DEM values are already in metres. For images,
    `elevation = min + (gray - darkest) / (lightest - darkest) x (max - min)`.
-3. **Classify** the point: Earth land or underwater (sea level = 0 m). The Moon has no sea level,
-   so its heights are relative to the mean radius.
+3. **Classify** the point: Earth land or underwater (sea level = 0 m). The Moon (mean radius) and
+   Mars (areoid) have no sea level.
 4. **Describe the surroundings** in real ground kilometres: average and roughness (standard
    deviation) of elevation within 75 km and 250 km, plus regional slope. The windows are widened by
    1/cos(latitude).
@@ -58,14 +64,15 @@ pip install -r requirements.txt
 
 python -m terrain_bot serve                    # browser UI at http://localhost:8000
 python -m terrain_bot query --body moon --lat -70.36 --lon -172.49 --surface underwater
-python -m terrain_bot analyze --top 20         # results/: CSV, JSON, summary, map, histogram
-python -m terrain_bot chat                     # "everest steps", "moon 0 0 underwater", "top 10"
+python -m terrain_bot query --body mars --lat 18.65 --lon -133.8 --target moon
+python -m terrain_bot analyze --bodies earth mars --top 20   # results/: CSV, JSON, summary, map, histogram
+python -m terrain_bot chat                     # "olympus on moon steps", "moon 0 0 underwater", "top 10 earth mars"
 python -m terrain_bot validate                 # image accuracy vs real data
 python -m terrain_bot calibrate                # data ranges and landmark checks
 ```
 
-Add `--source images` to use the grayscale images instead of the DEMs. Use your own images with
-`--earth path.png --moon path.png`. They are assumed to be equirectangular. Set the bounds with
+Add `--source images` or `--source images-fit` to use the grayscale images. Use your own images
+with `--earth`, `--moon` and `--mars`. They are assumed to be equirectangular. Set the bounds with
 `--earth-lat-range S N` (and the related flags) or with a `<image>.json` sidecar. Transparent
 pixels are ignored, and 16-bit PNG/TIFF files are read at full precision.
 

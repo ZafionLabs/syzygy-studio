@@ -32,7 +32,11 @@ def describe_surface(body: str, elevation_m: float) -> str:
             return f"underwater: sea floor {abs(elevation_m):,.0f} m below sea level"
         return f"on land: {elevation_m:,.0f} m above sea level"
     side = "above" if elevation_m >= 0 else "below"
-    return f"{abs(elevation_m):,.0f} m {side} the mean lunar radius (the Moon has no sea level)"
+    if body == "Mars":
+        return f"{abs(elevation_m):,.0f} m {side} the Mars datum (MOLA areoid; Mars has no sea level today)"
+    if body == "Moon":
+        return f"{abs(elevation_m):,.0f} m {side} the mean lunar radius (the Moon has no sea level)"
+    return f"{abs(elevation_m):,.0f} m {side} the reference surface"
 
 
 def _value_step(hm: Heightmap, p: SitePoint) -> dict:
@@ -45,6 +49,31 @@ def _value_step(hm: Heightmap, p: SitePoint) -> dict:
             ],
         }
     b = hm.body
+    if hm.source == "image-fit":
+        levels, metres = hm.lut
+        i = int(np.argmin(np.abs(levels - p.gray)))
+        return {
+            "title": "Convert brightness to real elevation (curve fitted to measured data)",
+            "lines": [
+                f"Pixel brightness: {p.gray:.0f}.",
+                f"For every brightness level the bot found all pixels with that brightness and took the median measured "
+                f"elevation at the same coordinates in {hm.source_name.split(' fitted to ')[-1]}. The curve was then forced "
+                "to rise with brightness.",
+                f"Brightness {levels[i]:.0f} -> {metres[i]:,.0f} m, so this point is {p.elevation_m:,.0f} m.",
+                f"The curve runs from {metres[0]:,.0f} m (brightness {levels[0]:.0f}) to {metres[-1]:,.0f} m "
+                f"(brightness {levels[-1]:.0f}). It corrects for clipped or non-linear images, which a straight "
+                f"{b.lowest.name}-to-{b.highest.name} scale can't.",
+                *(
+                    [
+                        f"Warning: brightness {p.gray:.0f} is the image's "
+                        f"{'brightest' if p.gray >= levels[-1] else 'darkest'} level, so the image is clipped here. The real "
+                        f"terrain may be much {'higher' if p.gray >= levels[-1] else 'lower'}; use the measured data for this spot."
+                    ]
+                    if p.gray >= levels[-1] or p.gray <= levels[0]
+                    else []
+                ),
+            ],
+        }
     t = (p.gray - hm.gray_min) / (hm.gray_max - hm.gray_min)
     return {
         "title": "Convert brightness to real elevation",
@@ -77,8 +106,15 @@ def breakdown_lines(m: Match) -> list[str]:
     return lines
 
 
-def explain_query(matcher: TerrainMatcher, body: str, origin: SitePoint, matches: list[Match], surface: str = "any") -> list[dict]:
-    src, dst = matcher._side(body)
+def explain_query(
+    matcher: TerrainMatcher,
+    body: str,
+    origin: SitePoint,
+    matches: list[Match],
+    surface: str = "any",
+    target: str | None = None,
+) -> list[dict]:
+    src, dst = matcher._pair(body, target)
     hm = src.hm
     km_ns, km_ew = hm.km_per_px
     steps = [
@@ -119,7 +155,7 @@ def explain_query(matcher: TerrainMatcher, body: str, origin: SitePoint, matches
         {
             "title": f"Search every pixel on {dst.hm.body.name}",
             "lines": [
-                f"Compared against all {matcher.search_size(body, surface):,} valid {dst.hm.body.name} pixels"
+                f"Compared against all {matcher.search_size(dst.hm.body.name, surface):,} valid {dst.hm.body.name} pixels"
                 + (f" ({surface} only)" if surface != "any" and dst.hm.body.name == "Earth" else "")
                 + f" from {dst.hm.source_name}.",
                 "An exact KD-tree nearest-neighbour search gives the same best match as checking every pixel one by one "
@@ -151,7 +187,10 @@ def explain_query(matcher: TerrainMatcher, body: str, origin: SitePoint, matches
 
 
 def explain_top(matcher: TerrainMatcher, matches: list[Match], surface: str = "any") -> list[dict]:
-    a, b = matcher.a.hm, matcher.b.hm
+    if matches:
+        a, b = matcher.side(matches[0].a.body).hm, matcher.side(matches[0].b.body).hm
+    else:
+        a, b = matcher.a.hm, matcher.b.hm
     steps = [
         {
             "title": "Load real-world elevations",
@@ -168,7 +207,7 @@ def explain_top(matcher: TerrainMatcher, matches: list[Match], surface: str = "a
         {
             "title": "Compare every pixel with every pixel",
             "lines": [
-                f"{matcher.a.subset(surface)[0].size:,} {a.body.name} pixels x {matcher.b.subset(surface)[0].size:,} "
+                f"{matcher.search_size(a.body.name, surface):,} {a.body.name} pixels x {matcher.search_size(b.body.name, surface):,} "
                 f"{b.body.name} pixels, using an exact KD-tree. Earth pixels: {surface}.",
                 "distance = sqrt(sum over features of weight x (difference / std-dev)^2); similarity = 100 x exp(-distance)",
             ],

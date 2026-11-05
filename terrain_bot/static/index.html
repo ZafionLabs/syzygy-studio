@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Terrain Bot: Earth and Moon look-alikes</title>
+<title>Terrain Bot: Earth, Moon and Mars look-alikes</title>
 <style>
   :root {
     --bg: #0b0f17; --panel: #131a26; --line: #243043; --text: #e6edf6; --muted: #8b9ab0;
@@ -65,13 +65,15 @@
 </head>
 <body>
 <header>
-  <h1>Terrain Bot: Earth and Moon look-alike terrain</h1>
-  <p>Click anywhere on either map to find the places on the other body with the most similar terrain. Underwater sea floor counts too.
-     By default it uses real measured elevations: NOAA ETOPO1 for Earth (including the ocean floor) and NASA LRO LOLA for the Moon.
-     You can switch to your images, where brightness is scaled so the darkest pixel is Challenger Deep (−10,935 m) and the lightest is Everest (+8,849 m) on Earth, and Point Trieste (−9,129 m) to the Selenean summit (+10,786 m) on the Moon.</p>
+  <h1>Terrain Bot: Earth, Moon and Mars look-alike terrain</h1>
+  <p>Pick two bodies, then click anywhere on either map to find the places on the other one with the most similar terrain. Earth's underwater sea floor counts too.
+     By default it uses real measured elevations: NOAA ETOPO1 for Earth (including the ocean floor), NASA LRO LOLA for the Moon, and NASA MGS MOLA for Mars.
+     You can switch to your images, scaled from each body's real lowest point to its highest: Challenger Deep (−10,935 m) to Everest (+8,849 m) on Earth, Point Trieste (−9,129 m) to the Selenean summit (+10,786 m) on the Moon, and Badwater crater in Hellas (−8,201 m) to Olympus Mons (+21,229 m) on Mars.
+     Or use the images with a brightness curve fitted to the real data.</p>
 </header>
 
 <div class="toolbar">
+  <label>Compare <select id="bodyA"></select> with <select id="bodyB"></select></label>
   <label>Data <select id="source"></select></label>
   <label>Compare by
     <select id="mode">
@@ -89,25 +91,22 @@
   <label>Results <input id="k" type="number" min="1" max="25" value="8" style="width:64px"></label>
   <button class="primary" id="topBtn">Show global top matches</button>
   <span class="sep"></span>
-  <button data-lm="earth,highest">Everest</button>
-  <button data-lm="earth,lowest">Mariana Trench</button>
-  <button data-lm="moon,highest">Selenean summit</button>
-  <button data-lm="moon,lowest">Antoniadi crater</button>
+  <span id="lmButtons" style="display:contents"></span>
 </div>
 
 <main>
   <div class="maps">
     <section class="panel">
-      <h2>Earth <small id="earthRange"></small></h2>
-      <div class="mapwrap" id="map-earth"><img alt="Earth elevation map"></div>
-      <div class="legend"><span id="earthMin"></span><span class="bar" style="background:linear-gradient(90deg,#000000,#1f4a7a,#2f8a7a,#5aa85a,#a8a855,#c8a87a,#fdfdfd)"></span><span id="earthMax"></span></div>
-      <div class="hover" id="hover-earth">Hover to read elevation. Click to search the Moon.</div>
+      <h2><span id="titleA"></span> <small id="rangeA"></small></h2>
+      <div class="mapwrap" id="map-A"><img alt="elevation map"></div>
+      <div class="legend"><span id="minA"></span><span class="bar" id="barA"></span><span id="maxA"></span></div>
+      <div class="hover" id="hover-A"></div>
     </section>
     <section class="panel">
-      <h2>Moon <small id="moonRange"></small></h2>
-      <div class="mapwrap" id="map-moon"><img alt="Moon elevation map"></div>
-      <div class="legend"><span id="moonMin"></span><span class="bar" style="background:linear-gradient(90deg,#00224e,#575d6d,#a59c74,#fee838)"></span><span id="moonMax"></span></div>
-      <div class="hover" id="hover-moon">Hover to read elevation. Click to search Earth.</div>
+      <h2><span id="titleB"></span> <small id="rangeB"></small></h2>
+      <div class="mapwrap" id="map-B"><img alt="elevation map"></div>
+      <div class="legend"><span id="minB"></span><span class="bar" id="barB"></span><span id="maxB"></span></div>
+      <div class="hover" id="hover-B"></div>
     </section>
   </div>
 
@@ -150,6 +149,16 @@
 <script>
 const $ = (s) => document.querySelector(s);
 let INFO = null;
+const GRADIENTS = {
+  earth: "linear-gradient(90deg,#000000,#1f4a7a,#2f8a7a,#5aa85a,#a8a855,#c8a87a,#fdfdfd)",
+  moon: "linear-gradient(90deg,#00224e,#575d6d,#a59c74,#fee838)",
+  mars: "linear-gradient(90deg,#000000,#7f4f32,#ff9f65,#ffc77f)",
+};
+const LANDMARK_LABELS = {
+  "earth,highest": "Everest", "earth,lowest": "Mariana Trench",
+  "moon,highest": "Selenean summit", "moon,lowest": "Antoniadi crater",
+  "mars,highest": "Olympus Mons", "mars,lowest": "Hellas (Badwater)",
+};
 
 const fmtM = (v) => (v == null ? "n/a" : `${Math.round(v).toLocaleString()} m`);
 const fmtNum = (v, d = 1) => (v == null ? "n/a" : v.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }));
@@ -157,6 +166,9 @@ const fmtLL = (lat, lon) => `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
 const source = () => $("#source").value;
 const bodies = () => INFO.sources[source()].bodies;
+const slots = () => ({ A: $("#bodyA").value, B: $("#bodyB").value });
+const slotOf = (body) => Object.entries(slots()).find(([, b]) => b === body)?.[0];
+const otherOf = (body) => (slots().A === body ? slots().B : slots().A);
 const params = () => `mode=${$("#mode").value}&source=${source()}&surface=${$("#surface").value}`;
 
 async function api(path) {
@@ -177,6 +189,8 @@ function toLatLon(body, ev) {
 }
 
 function place(body, lat, lon, cls, text, title) {
+  const slot = slotOf(body);
+  if (!slot) return null;
   const b = bodies()[body];
   const el = document.createElement("div");
   el.className = `marker ${cls}`;
@@ -184,7 +198,7 @@ function place(body, lat, lon, cls, text, title) {
   el.style.top = `${((b.lat_range[1] - lat) / (b.lat_range[1] - b.lat_range[0])) * 100}%`;
   el.textContent = text;
   if (title) el.title = title;
-  $(`#map-${body}`).appendChild(el);
+  $(`#map-${slot}`).appendChild(el);
   return el;
 }
 
@@ -233,6 +247,7 @@ function showResults(matches, origin) {
     const markers = [];
     if (!origin) markers.push(place(bodyKey(m.a.body), m.a.lat, m.a.lon, "", m.rank, `${m.a.body} #${m.rank}`));
     markers.push(place(bodyKey(m.b.body), m.b.lat, m.b.lon, "", m.rank, `${m.b.body} #${m.rank}`));
+    const live = markers.filter(Boolean);
     const tr = document.createElement("tr");
     tr.innerHTML = `<td>${m.rank}</td><td><span class="sim">${m.similarity.toFixed(1)}%</span></td>
       <td>${fmtLL(m.a.lat, m.a.lon)}</td><td>${elevCell(m.a)}</td><td>${fmtM(relief(m.a))}</td>
@@ -241,11 +256,11 @@ function showResults(matches, origin) {
     const activate = () => {
       document.querySelectorAll(".active").forEach((e) => e.classList.remove("active"));
       tr.classList.add("active");
-      markers.forEach((mk) => mk.classList.add("active"));
+      live.forEach((mk) => mk.classList.add("active"));
       showBreakdown(m);
     };
     tr.addEventListener("click", activate);
-    markers.forEach((mk) => mk.addEventListener("click", (e) => { e.stopPropagation(); activate(); tr.scrollIntoView({ block: "nearest" }); }));
+    live.forEach((mk) => mk.addEventListener("click", (e) => { e.stopPropagation(); activate(); tr.scrollIntoView({ block: "nearest" }); }));
     tbody.appendChild(tr);
   }
   $("#results").hidden = false;
@@ -255,14 +270,16 @@ function showResults(matches, origin) {
 let lastQuery = null;
 
 async function runQuery(body, lat, lon, label) {
+  if (!slotOf(body)) return;
   lastQuery = { body, lat, lon, label };
+  const target = otherOf(body);
   const k = $("#k").value;
-  $("#status").textContent = `Searching ${body === "earth" ? "the Moon" : "Earth"} for terrain like ${label || fmtLL(+lat, +lon)}…`;
+  $("#status").textContent = `Searching ${bodies()[target].name} for terrain like ${label || fmtLL(+lat, +lon)}…`;
   try {
-    const res = await api(`/api/query?body=${body}&lat=${lat}&lon=${lon}&k=${k}&${params()}`);
+    const res = await api(`/api/query?body=${body}&target=${target}&lat=${lat}&lon=${lon}&k=${k}&${params()}`);
     const o = res.origin, f = o.features;
     $("#status").innerHTML = `Query: <b>${label ? esc(label) + ", " : ""}${o.body} ${fmtLL(o.lat, o.lon)}</b> is ${esc(o.surface)}; ` +
-      `75 km roughness ${fmtM(f.relief_75km_m)}, slope ${f.slope_75km_deg.toFixed(2)}°. Most similar places on ${res.matches[0]?.b.body ?? "the other body"}:`;
+      `75 km roughness ${fmtM(f.relief_75km_m)}, slope ${f.slope_75km_deg.toFixed(2)}°. Most similar places on ${bodies()[target].name}:`;
     showResults(res.matches, o);
     showSteps(res.steps);
   } catch (e) { $("#status").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
@@ -270,50 +287,75 @@ async function runQuery(body, lat, lon, label) {
 
 async function runTop() {
   lastQuery = null;
-  const k = $("#k").value;
-  $("#status").textContent = "Comparing every Earth pixel with every Moon pixel…";
+  const k = $("#k").value, { A, B } = slots();
+  $("#status").textContent = `Comparing every ${bodies()[A].name} pixel with every ${bodies()[B].name} pixel…`;
   try {
-    const res = await api(`/api/top?n=${k}&${params()}`);
-    $("#status").textContent = `Top ${res.matches.length} most similar Earth/Moon locations (${$("#mode").value} mode, ${INFO.sources[source()].label}). Click a row to see why.`;
+    const res = await api(`/api/top?n=${k}&a=${A}&b=${B}&${params()}`);
+    $("#status").textContent = `Top ${res.matches.length} most similar ${bodies()[A].name}/${bodies()[B].name} locations (${$("#mode").value} mode, ${INFO.sources[source()].label}). Click a row to see why.`;
     showResults(res.matches, null);
     showSteps(res.steps);
   } catch (e) { $("#status").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
 }
 
-const rerun = () => (lastQuery ? runQuery(lastQuery.body, lastQuery.lat, lastQuery.lon, lastQuery.label) : runTop());
+const rerun = () => (lastQuery && slotOf(lastQuery.body) ? runQuery(lastQuery.body, lastQuery.lat, lastQuery.lon, lastQuery.label) : runTop());
 
-function wireMap(body) {
-  const wrap = $(`#map-${body}`);
+function wireMap(slot) {
+  const wrap = $(`#map-${slot}`);
   let pending = null;
   wrap.addEventListener("mousemove", (ev) => {
+    const body = slots()[slot];
     const { lat, lon } = toLatLon(body, ev);
     clearTimeout(pending);
     pending = setTimeout(async () => {
       try {
         const h = await api(`/api/height?body=${body}&lat=${lat}&lon=${lon}&source=${source()}`);
-        $(`#hover-${body}`).textContent = `${fmtLL(lat, lon)}: ${h.surface}`;
+        $(`#hover-${slot}`).textContent = `${fmtLL(lat, lon)}: ${h.surface}`;
       } catch { }
     }, 60);
   });
   wrap.addEventListener("click", (ev) => {
+    const body = slots()[slot];
     const { lat, lon } = toLatLon(body, ev);
     runQuery(body, lat.toFixed(3), lon.toFixed(3));
   });
 }
 
-function renderSource() {
+function fillBodySelects() {
+  const keys = Object.keys(bodies());
+  for (const [id, fallback] of [["#bodyA", 0], ["#bodyB", 1]]) {
+    const sel = $(id), prev = sel.value;
+    sel.innerHTML = "";
+    keys.forEach((k) => sel.add(new Option(bodies()[k].name, k)));
+    sel.value = keys.includes(prev) ? prev : keys[fallback];
+  }
+}
+
+function renderPair() {
   const src = source();
   clearMarkers(true);
-  for (const key of ["earth", "moon"]) {
+  for (const [slot, key] of Object.entries(slots())) {
     const b = bodies()[key];
-    $(`#map-${key} img`).src = `/map/${src}/${key}.png`;
-    $(`#${key}Min`).textContent = fmtM(b.color_min_m);
-    $(`#${key}Max`).textContent = fmtM(b.color_max_m);
-    $(`#${key}Range`).textContent = `${esc(b.source_name)} · ${b.width}×${b.height} px · ~${Math.round(b.pixel_km)} km per pixel`;
+    $(`#map-${slot} img`).src = `/map/${src}/${key}.png`;
+    $(`#title${slot}`).textContent = b.name;
+    $(`#min${slot}`).textContent = fmtM(b.color_min_m);
+    $(`#max${slot}`).textContent = fmtM(b.color_max_m);
+    $(`#bar${slot}`).style.background = GRADIENTS[key] || GRADIENTS.moon;
+    $(`#range${slot}`).textContent = `${b.source_name} · ${b.width}×${b.height} px · ~${Math.round(b.pixel_km)} km per pixel`;
+    $(`#hover-${slot}`).textContent = `Hover to read elevation. Click to search ${bodies()[otherOf(key)].name}.`;
     for (const lm of b.landmarks) place(key, lm.lat, lm.lon, "lm", lm.kind === "highest" ? "▲" : "▼", lm.name);
   }
-  $("#calib").textContent = Object.values(bodies()).map((b) => {
-    const c = b.calibration;
+  $("#lmButtons").innerHTML = "";
+  for (const key of Object.values(slots())) {
+    for (const lm of bodies()[key].landmarks) {
+      const btn = document.createElement("button");
+      btn.textContent = LANDMARK_LABELS[`${key},${lm.kind}`] || lm.name;
+      btn.title = `${lm.name}: ${fmtM(lm.elevation_m)}`;
+      btn.addEventListener("click", () => runQuery(key, lm.lat, lm.lon, lm.name));
+      $("#lmButtons").appendChild(btn);
+    }
+  }
+  $("#calib").textContent = Object.values(slots()).map((key) => {
+    const b = bodies()[key], c = b.calibration;
     return `${b.name}: ${b.source_name}\n` + ["highest", "lowest"].map((k) => {
       const e = c[k];
       return `  ${k === "highest" ? "▲" : "▼"} ${e.landmark}: real ${fmtM(e.real_elevation_m)}; the map reads ${fmtM(e.map_elevation_at_real_location_m)} there. ` +
@@ -326,15 +368,16 @@ function renderValidation() {
   const v = INFO.validation;
   if (!v) { $("#validation").innerHTML = `<p class="note">Real elevation data isn't installed, so the images can't be checked.</p>`; return; }
   $("#validation").innerHTML = v.map((c) => {
-    const good = c.spearman > 0.9;
+    const good = c.median_abs_error_m < 600 && c.spearman > 0.9;
+    const how = c.source === "images-fit" ? "fitted curve" : "lowest-to-highest scale";
     const lw = c.land_water_agreement != null ? `<span>land vs water</span><span>image says ${(c.underwater_fraction_image * 100).toFixed(0)}% underwater, reality is ${(c.underwater_fraction_real * 100).toFixed(0)}%; they agree on ${(c.land_water_agreement * 100).toFixed(0)}% of the surface</span>` : "";
-    return `<b>${c.body}: ${esc(c.image)}</b> <span class="${good ? "good" : "bad"}">${good ? "reliable" : "unreliable"}</span>
+    return `<b>${c.body} image, ${how}</b> <span class="${good ? "good" : "bad"}">${good ? "accurate" : "inaccurate"}</span>
       <div class="metric">
         <span>rank correlation</span><span>${c.spearman.toFixed(3)} (1.0 = brightness perfectly tracks real height)</span>
         <span>typical error</span><span>${fmtM(c.median_abs_error_m)} median, ${fmtM(c.rmse_m)} RMS, bias ${c.bias_m >= 0 ? "+" : ""}${fmtM(c.bias_m)}</span>
         ${lw}
       </div>`;
-  }).join("") + `<p class="note">Compared pixel by pixel with ${esc(v[0].reference)} and ${esc(v[1].reference)}. The Earth image is a shaded-relief picture, so brightness isn't height. That's why real measured data is the default.</p>`;
+  }).join("") + `<p class="note">Each image is compared pixel by pixel with the measured data. The Earth image is a shaded-relief picture, so brightness isn't height. The Mars image is clipped at both ends, so everything above about +7 km (Olympus and the Tharsis volcanoes) is pure white. That breaks a straight lowest-to-highest scale, but the fitted curve handles it.</p>`;
 }
 
 async function init() {
@@ -343,18 +386,25 @@ async function init() {
   for (const [key, s] of Object.entries(INFO.sources)) sel.add(new Option(s.label, key));
   sel.value = INFO.default_source;
   $("#mode").value = INFO.default_mode;
-  wireMap("earth"); wireMap("moon");
-  renderSource();
+  fillBodySelects();
+  $("#bodyA").value = "earth"; $("#bodyB").value = "moon";
+  wireMap("A"); wireMap("B");
+  renderPair();
   renderValidation();
   $("#topBtn").addEventListener("click", runTop);
-  sel.addEventListener("change", () => { renderSource(); rerun(); });
+  sel.addEventListener("change", () => { fillBodySelects(); renderPair(); rerun(); });
+  for (const id of ["#bodyA", "#bodyB"]) {
+    $(id).addEventListener("change", (ev) => {
+      const other = id === "#bodyA" ? "#bodyB" : "#bodyA";
+      if ($(other).value === ev.target.value) {
+        $(other).value = Object.keys(bodies()).find((k) => k !== ev.target.value);
+      }
+      renderPair();
+      rerun();
+    });
+  }
   $("#mode").addEventListener("change", rerun);
   $("#surface").addEventListener("change", rerun);
-  document.querySelectorAll("[data-lm]").forEach((btn) => btn.addEventListener("click", () => {
-    const [body, kind] = btn.dataset.lm.split(",");
-    const lm = bodies()[body].landmarks.find((l) => l.kind === kind);
-    runQuery(body, lm.lat, lm.lon, lm.name);
-  }));
   runTop();
 }
 

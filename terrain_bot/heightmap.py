@@ -55,6 +55,7 @@ class Heightmap:
     gray_max: float = 255.0
     source: str = "image"
     source_name: str = ""
+    lut: tuple[np.ndarray, np.ndarray] | None = None  # (brightness levels, metres) for fitted images
 
     @property
     def shape(self) -> tuple[int, int]:

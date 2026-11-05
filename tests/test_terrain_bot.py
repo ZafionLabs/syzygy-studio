@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from terrain_bot import EARTH, MOON, MatchConfig, TerrainMatcher, heightmap_from_array, load_heightmap
+from terrain_bot import EARTH, MARS, MOON, MatchConfig, TerrainMatcher, heightmap_from_array, load_heightmap
 from terrain_bot.bodies import Body
 from terrain_bot import dem
 from terrain_bot.cli import handle_chat, main
@@ -82,7 +82,7 @@ def test_matcher_finds_planted_twin():
 
     hm_a = heightmap_from_array(a_gray, EARTH)
     hm_b = heightmap_from_array(b_gray, twin_body)
-    matcher = TerrainMatcher(hm_a, hm_b, MatchConfig(scales_km=(150.0, 400.0), min_separation_deg=10))
+    matcher = TerrainMatcher([hm_a, hm_b], MatchConfig(scales_km=(150.0, 400.0), min_separation_deg=10))
 
     lat, lon = hm_a.latlon_of(35, 50)
     origin, results = matcher.query("earth", lat, lon, k=3)
@@ -98,7 +98,7 @@ def test_matcher_finds_planted_twin():
 def test_top_matches_respect_separation():
     hm_a = heightmap_from_array(_synthetic_terrain(seed=3), EARTH)
     hm_b = heightmap_from_array(_synthetic_terrain(seed=4), MOON)
-    matcher = TerrainMatcher(hm_a, hm_b, MatchConfig(min_separation_deg=15))
+    matcher = TerrainMatcher([hm_a, hm_b], MatchConfig(min_separation_deg=15))
     top = matcher.top_matches(8)
     from terrain_bot.heightmap import haversine_km
 
@@ -113,7 +113,7 @@ def test_kdtree_search_equals_brute_force():
     hm_a = heightmap_from_array(_synthetic_terrain(seed=7), EARTH)
     hm_b = heightmap_from_array(_synthetic_terrain(seed=8), MOON)
     for mode in ("terrain", "elevation"):
-        matcher = TerrainMatcher(hm_a, hm_b, MatchConfig(mode=mode))
+        matcher = TerrainMatcher([hm_a, hm_b], MatchConfig(mode=mode))
         rng = np.random.default_rng(0)
         for lat, lon in zip(rng.uniform(-80, 80, 15), rng.uniform(-180, 180, 15)):
             for surface in ("any", "land", "underwater"):
@@ -128,11 +128,11 @@ def test_kdtree_search_equals_brute_force():
 def test_top_matches_bounded_search_is_exact():
     hm_a = heightmap_from_array(_synthetic_terrain(seed=9), EARTH)
     hm_b = heightmap_from_array(_synthetic_terrain(seed=10), MOON)
-    matcher = TerrainMatcher(hm_a, hm_b)
+    matcher = TerrainMatcher([hm_a, hm_b])
     a_idx, _ = matcher.a.subset("any")
     b_idx, b_tree = matcher.b.subset("any")
     bounded = matcher.top_matches(6)
-    unbounded = matcher._top_within(a_idx, b_idx, b_tree, 6, np.inf)
+    unbounded = matcher._top_within(matcher.a, matcher.b, a_idx, b_idx, b_tree, 6, np.inf)
     assert [(m.a.row, m.a.col, m.b.row, m.b.col) for m in bounded] == [
         (m.a.row, m.a.col, m.b.row, m.b.col) for m in unbounded
     ]
@@ -141,7 +141,7 @@ def test_top_matches_bounded_search_is_exact():
 def test_surface_filter_selects_land_or_sea_floor():
     hm_a = heightmap_from_array(_synthetic_terrain(seed=11), EARTH)
     hm_b = heightmap_from_array(_synthetic_terrain(seed=12), MOON)
-    matcher = TerrainMatcher(hm_a, hm_b)
+    matcher = TerrainMatcher([hm_a, hm_b])
     _, wet = matcher.query("moon", 0, 0, k=5, surface="underwater")
     _, dry = matcher.query("moon", 0, 0, k=5, surface="land")
     assert all(m.b.elevation_m < 0 for m in wet)
@@ -152,7 +152,7 @@ def test_surface_filter_selects_land_or_sea_floor():
 def test_explanation_steps_show_the_working():
     hm_a = heightmap_from_array(_synthetic_terrain(seed=13), EARTH)
     hm_b = heightmap_from_array(_synthetic_terrain(seed=14), MOON)
-    matcher = TerrainMatcher(hm_a, hm_b)
+    matcher = TerrainMatcher([hm_a, hm_b])
     origin, results = matcher.query("earth", 10, 20, k=3)
     steps = explain_query(matcher, "earth", origin, results)
     text = format_steps(steps)
@@ -179,7 +179,7 @@ def test_bundled_maps_end_to_end(tmp_path):
 
     earth = load_heightmap(DATA / "earth_heightmap.png", EARTH)
     moon = load_heightmap(DATA / "moon_heightmap.png", MOON)
-    matcher = TerrainMatcher(earth, moon)
+    matcher = TerrainMatcher([earth, moon])
     reply = handle_chat(matcher, "everest steps", k=2)
     assert "Mount Everest" in reply and "Moon location" in reply and "Step 1." in reply
     assert "outside the map" in handle_chat(matcher, "moon 100 0")
@@ -199,6 +199,39 @@ def test_real_dem_data():
     assert comparison["spearman"] > 0.95
 
 
+@pytest.mark.skipif(not dem.dem_available("mars"), reason="Mars DEM not downloaded")
+def test_mars_real_data_and_fitted_image():
+    mars = dem.load_dem("mars")
+    assert mars.elevation_at(18.65, -133.8) > 19000  # Olympus Mons
+    assert mars.elevation_at(-32.85, 62.21) < -7500  # Badwater crater, Hellas
+    assert mars.latlon_of(*mars.extreme_pixels()["highest"])[1] == pytest.approx(-133.1, abs=0.5)
+
+    image = load_heightmap(DATA / "mars_heightmap.png", MARS)
+    assert image.elevation.max() == pytest.approx(21229.0)
+    assert image.elevation.min() == pytest.approx(-8201.0)
+    linear = dem.compare_to_dem(image, mars)
+    fitted = dem.compare_to_dem(dem.fit_image_to_dem(image, mars), mars)
+    assert linear["spearman"] > 0.95
+    assert fitted["median_abs_error_m"] < 300 < linear["median_abs_error_m"]
+
+
+def test_three_bodies_any_pair():
+    maps = [heightmap_from_array(_synthetic_terrain(seed=s), b) for s, b in ((20, EARTH), (21, MOON), (22, MARS))]
+    matcher = TerrainMatcher(maps)
+    assert matcher.default_target("earth") == "moon"
+    assert matcher.default_target("mars") == "earth"
+    _, res = matcher.query("mars", 10, 20, k=2, target="moon")
+    assert {m.b.body for m in res} == {"Moon"}
+    top = matcher.top_matches(3, a="moon", b="mars")
+    assert top[0].a.body == "Moon" and top[0].b.body == "Mars"
+    idx, d = matcher.brute_force_best("mars", 10, 20, target="moon")
+    assert res[0].distance == pytest.approx(d)
+    with pytest.raises(ValueError):
+        matcher.query("mars", 0, 0, target="mars")
+    reply = handle_chat(matcher, "olympus on moon steps", k=1)
+    assert "Olympus Mons" in reply and "Moon location" in reply and "Mars datum" in reply
+
+
 def test_web_api_round_trip():
     import json
     import threading
@@ -210,7 +243,7 @@ def test_web_api_round_trip():
 
     hm_a = heightmap_from_array(_synthetic_terrain(seed=5), EARTH)
     hm_b = heightmap_from_array(_synthetic_terrain(seed=6), MOON)
-    app = TerrainApp({"images": (hm_a, hm_b)}, MatchConfig(), default_source="images")
+    app = TerrainApp({"images": {"earth": hm_a, "moon": hm_b}}, MatchConfig(), default_source="images")
     server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(app))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{server.server_address[1]}"

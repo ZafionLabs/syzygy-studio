@@ -146,20 +146,33 @@ def _keep_top_per_group(groups: np.ndarray, per_group: int) -> np.ndarray:
 
 
 class TerrainMatcher:
-    """Compare two elevation grids (e.g. Earth vs Moon) and report look-alike locations."""
+    """Index any number of elevation grids (e.g. Earth, Moon, Mars) and report look-alike locations.
 
-    def __init__(self, hm_a: Heightmap, hm_b: Heightmap, config: MatchConfig | None = None):
+    Features are normalised with statistics pooled over every body in the
+    index, so a body's vectors and KD-trees are shared by all pairings.
+    """
+
+    def __init__(
+        self,
+        maps: list[Heightmap] | tuple[Heightmap, ...],
+        config: MatchConfig | None = None,
+        feature_sets: dict[str, FeatureSet] | None = None,
+    ):
         self.config = config or MatchConfig()
         if self.config.mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}")
+        if len(maps) < 2:
+            raise ValueError("Need at least two maps to compare")
 
-        fs_a = compute_features(hm_a, self.config.scales_km)
-        fs_b = compute_features(hm_b, self.config.scales_km)
-        self.feature_names = fs_a.names
-        self.a = _Side(hm_a, fs_a)
-        self.b = _Side(hm_b, fs_b)
-        if self.a.size == 0 or self.b.size == 0:
-            raise ValueError("No valid terrain pixels on one of the maps")
+        feature_sets = feature_sets or {}
+        self.sides: dict[str, _Side] = {}
+        for hm in maps:
+            key = hm.body.name.lower()
+            fs = feature_sets.get(key) or compute_features(hm, self.config.scales_km)
+            self.sides[key] = _Side(hm, fs)
+            if self.sides[key].size == 0:
+                raise ValueError(f"No valid terrain pixels on {hm.body.name}")
+        self.feature_names = next(iter(self.sides.values())).fs.names
 
         weights = default_weights(self.feature_names)
         if self.config.weights:
@@ -171,8 +184,8 @@ class TerrainMatcher:
         self.active = list(self.feature_names)
 
         # Area-weighted statistics so the over-sampled polar rows don't dominate.
-        pooled = np.concatenate([self.a.raw, self.b.raw])
-        area = np.concatenate([np.cos(np.radians(self.a.lats)), np.cos(np.radians(self.b.lats))])
+        pooled = np.concatenate([side.raw for side in self.sides.values()])
+        area = np.concatenate([np.cos(np.radians(side.lats)) for side in self.sides.values()])
         area = np.clip(area, 1e-3, None)
         self.mean = np.average(pooled, axis=0, weights=area)
         self.std = np.sqrt(np.average((pooled - self.mean) ** 2, axis=0, weights=area))
@@ -181,8 +194,34 @@ class TerrainMatcher:
         self.weight_share = w / w.sum()
         self._scale = np.sqrt(self.weight_share) / self.std
 
-        for side in (self.a, self.b):
+        for side in self.sides.values():
             side.vectors = self._embed(side.raw)
+
+    @property
+    def bodies(self) -> list[str]:
+        return list(self.sides)
+
+    @property
+    def a(self) -> _Side:
+        return self.sides[self.bodies[0]]
+
+    @property
+    def b(self) -> _Side:
+        return self.sides[self.bodies[1]]
+
+    def side(self, body: str) -> _Side:
+        try:
+            return self.sides[body.lower()]
+        except KeyError:
+            raise ValueError(f"Body {body!r} is not part of this comparison; choose from {self.bodies}") from None
+
+    def default_target(self, body: str) -> str:
+        """Earth pairs with the Moon by default; everything else pairs with Earth (or the first other body)."""
+        body = body.lower()
+        preferred = "moon" if body == "earth" else "earth"
+        if preferred in self.sides:
+            return preferred
+        return next(b for b in self.bodies if b != body)
 
     def _embed(self, raw: np.ndarray) -> np.ndarray:
         return (raw - self.mean) * self._scale
@@ -211,25 +250,24 @@ class TerrainMatcher:
             )
         return rows
 
-    def _side(self, body: str) -> tuple[_Side, _Side]:
-        key = body.lower()
-        if key == self.a.hm.body.name.lower():
-            return self.a, self.b
-        if key == self.b.hm.body.name.lower():
-            return self.b, self.a
-        raise ValueError(f"Body {body!r} is not part of this comparison")
+    def _pair(self, body: str, target: str | None) -> tuple[_Side, _Side]:
+        target = target or self.default_target(body)
+        if target.lower() == body.lower():
+            raise ValueError("Pick two different bodies to compare")
+        return self.side(body), self.side(target)
 
     def _make_match(self, rank: int, d: float, p: SitePoint, q: SitePoint) -> Match:
         return Match(rank=rank, similarity=float(self.similarity(d)), distance=float(d), a=p, b=q,
                      breakdown=self.breakdown(p, q))
 
-    def top_matches(self, n: int = 20, surface: str = "any") -> list[Match]:
-        """Globally most similar pairs, spread out so they are not all in one spot.
+    def top_matches(self, n: int = 20, surface: str = "any", a: str | None = None, b: str | None = None) -> list[Match]:
+        """Globally most similar pairs between bodies ``a`` and ``b``, spread out so they are not all in one spot.
 
         ``surface`` restricts the Earth side to land or underwater pixels.
         """
-        a_idx, _ = self.a.subset(surface)
-        b_idx, b_tree = self.b.subset(surface)
+        side_a, side_b = self._pair(a or self.bodies[0], b or (self.bodies[1] if a is None else None))
+        a_idx, _ = side_a.subset(surface)
+        b_idx, b_tree = side_b.subset(surface)
 
         # Only close pairs can make the list, so search within a distance bound
         # estimated from a sample and widen it until enough matches survive.
@@ -237,19 +275,19 @@ class TerrainMatcher:
         # walks them in the same order as an unbounded search would.
         rng = np.random.default_rng(0)
         sample = rng.choice(a_idx, size=min(5000, a_idx.size), replace=False)
-        sample_d, _ = b_tree.query(self.a.vectors[sample], k=1, workers=-1)
+        sample_d, _ = b_tree.query(side_a.vectors[sample], k=1, workers=-1)
         pct = 2.0
         while True:
             bound = np.percentile(sample_d, pct) if pct < 100 else np.inf
-            matches = self._top_within(a_idx, b_idx, b_tree, n, bound)
+            matches = self._top_within(side_a, side_b, a_idx, b_idx, b_tree, n, bound)
             if len(matches) >= n or not np.isfinite(bound):
                 return matches
             pct = min(pct * 3, 100.0)
 
-    def _top_within(self, a_idx, b_idx, b_tree, n: int, bound: float) -> list[Match]:
+    def _top_within(self, side_a, side_b, a_idx, b_idx, b_tree, n: int, bound: float) -> list[Match]:
         cfg = self.config
         k = min(cfg.candidates_per_point, b_idx.size)
-        dist, jb = b_tree.query(self.a.vectors[a_idx], k=k, distance_upper_bound=bound, workers=-1)
+        dist, jb = b_tree.query(side_a.vectors[a_idx], k=k, distance_upper_bound=bound, workers=-1)
         dist = dist.reshape(a_idx.size, -1)
         jb = jb.reshape(a_idx.size, -1)
         found = np.isfinite(dist)
@@ -262,28 +300,30 @@ class TerrainMatcher:
 
         sep = cfg.min_separation_deg
         per_cell = max(4, n)
-        keep = _keep_top_per_group(_cell_ids(self.a.lats[ia], self.a.lons[ia], sep), per_cell)
+        keep = _keep_top_per_group(_cell_ids(side_a.lats[ia], side_a.lons[ia], sep), per_cell)
         ia, ib, dist = ia[keep], ib[keep], dist[keep]
-        keep = _keep_top_per_group(_cell_ids(self.b.lats[ib], self.b.lons[ib], sep), per_cell)
+        keep = _keep_top_per_group(_cell_ids(side_b.lats[ib], side_b.lons[ib], sep), per_cell)
         ia, ib, dist = ia[keep], ib[keep], dist[keep]
 
         acc_a, acc_b = [], []
         matches: list[Match] = []
         for i_a, i_b, d in zip(ia, ib, dist):
-            pa = (self.a.lats[i_a], self.a.lons[i_a])
-            pb = (self.b.lats[i_b], self.b.lons[i_b])
+            pa = (side_a.lats[i_a], side_a.lons[i_a])
+            pb = (side_b.lats[i_b], side_b.lons[i_b])
             if _too_close(pb, acc_b, sep) or _too_close(pa, acc_a, sep):
                 continue
             acc_a.append(pa)
             acc_b.append(pb)
-            matches.append(self._make_match(len(matches) + 1, d, self.a.point(int(i_a)), self.b.point(int(i_b))))
+            matches.append(self._make_match(len(matches) + 1, d, side_a.point(int(i_a)), side_b.point(int(i_b))))
             if len(matches) >= n:
                 break
         return matches
 
-    def query(self, body: str, lat: float, lon: float, k: int = 5, surface: str = "any") -> tuple[SitePoint, list[Match]]:
-        """Most similar places on the *other* body to the given coordinate."""
-        src, dst = self._side(body)
+    def query(
+        self, body: str, lat: float, lon: float, k: int = 5, surface: str = "any", target: str | None = None
+    ) -> tuple[SitePoint, list[Match]]:
+        """Most similar places on ``target`` (default: :meth:`default_target`) to the given coordinate."""
+        src, dst = self._pair(body, target)
         r, c = src.hm.pixel_of(lat, lon)
         if not src.fs.valid[r, c]:
             raise ValueError(f"({lat}, {lon}) has no valid terrain data on {src.hm.body.name}")
@@ -292,7 +332,6 @@ class TerrainMatcher:
         idx, tree = dst.subset(surface)
 
         sep = self.config.min_separation_deg
-        results: list[Match] = []
         n_cand = min(max(200, 50 * k), idx.size)
         while True:
             dist, j = tree.query(vec, k=n_cand)
@@ -310,9 +349,11 @@ class TerrainMatcher:
                 return origin, results
             n_cand = min(n_cand * 4, idx.size)
 
-    def brute_force_best(self, body: str, lat: float, lon: float, surface: str = "any") -> tuple[int, float]:
+    def brute_force_best(
+        self, body: str, lat: float, lon: float, surface: str = "any", target: str | None = None
+    ) -> tuple[int, float]:
         """Reference implementation: compare against every pixel explicitly (used to verify the KD-tree)."""
-        src, dst = self._side(body)
+        src, dst = self._pair(body, target)
         r, c = src.hm.pixel_of(lat, lon)
         vec = self._embed(src.fs.values[r, c][None, :])[0]
         idx, _ = dst.subset(surface)
@@ -320,9 +361,8 @@ class TerrainMatcher:
         best = int(np.argmin(d))
         return int(idx[best]), float(d[best])
 
-    def search_size(self, body: str, surface: str = "any") -> int:
-        _, dst = self._side(body)
-        return int(dst.subset(surface)[0].size)
+    def search_size(self, target: str, surface: str = "any") -> int:
+        return int(self.side(target).subset(surface)[0].size)
 
 
 def _too_close(p: tuple[float, float], accepted: list[tuple[float, float]], sep: float) -> bool:

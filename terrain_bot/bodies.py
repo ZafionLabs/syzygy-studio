@@ -75,7 +75,27 @@ MOON = Body(
     ),
 )
 
-BODIES = {"earth": EARTH, "moon": MOON}
+MARS = Body(
+    name="Mars",
+    mean_radius_km=3389.5,
+    datum="MOLA areoid (Mars has no sea level)",
+    highest=Landmark(
+        name="Olympus Mons summit",
+        lat=18.65,
+        lon=-133.8,
+        elevation_m=21229.0,
+        source="MGS MOLA (Smith et al. 2001)",
+    ),
+    lowest=Landmark(
+        name="Badwater crater (Hellas Planitia)",
+        lat=-32.85,
+        lon=62.21,
+        elevation_m=-8201.0,
+        source="MGS MOLA 463 m DEM",
+    ),
+)
+
+BODIES = {"earth": EARTH, "moon": MOON, "mars": MARS}
 
 
 def get_body(name: str) -> Body:
