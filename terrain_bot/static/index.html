@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terrain Bot: Earth, Moon and Mars look-alikes</title>
+<style>
+  :root {
+    --bg: #0b0f17; --panel: #131a26; --line: #243043; --text: #e6edf6; --muted: #8b9ab0;
+    --accent: #5aa9ff; --hi: #ff6b6b; --ok: #3ddc97; --sea: #4fc3f7; --land: #c5a46d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 18px 24px 8px; }
+  h1 { margin: 0; font-size: 20px; font-weight: 650; }
+  header p { margin: 4px 0 0; color: var(--muted); max-width: 1100px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 24px 14px; border-bottom: 1px solid var(--line); }
+  .toolbar label { color: var(--muted); font-size: 13px; display: flex; gap: 6px; align-items: center; }
+  select, input, button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #04111f; font-weight: 600; }
+  .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
+  main { display: grid; gap: 16px; padding: 16px 24px 32px; }
+  .maps { display: grid; gap: 16px; }
+  @media (min-width: 1400px) { .maps { grid-template-columns: 1fr 1fr; } .lower { grid-template-columns: 3fr 2fr; } }
+  .lower { display: grid; gap: 16px; align-items: start; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
+  .panel h2 { margin: 0 0 8px; font-size: 15px; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .panel h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .mapwrap { position: relative; width: 100%; cursor: crosshair; user-select: none; border-radius: 6px; overflow: hidden; background: #000; }
+  .mapwrap img { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+  .marker { position: absolute; transform: translate(-50%, -50%); width: 20px; height: 20px; border-radius: 50%; border: 2px solid #fff;
+            background: var(--accent); color: #04111f; font-size: 11px; font-weight: 700; display: grid; place-items: center; cursor: pointer; box-shadow: 0 0 0 2px rgba(0,0,0,.45); }
+  .marker.origin { background: var(--hi); color: #fff; width: 16px; height: 16px; }
+  .marker.lm { background: transparent; border: none; box-shadow: none; color: var(--hi); font-size: 16px; width: auto; height: auto; pointer-events: none; text-shadow: 0 0 3px #000; }
+  .marker.active { outline: 3px solid var(--ok); z-index: 5; }
+  .hover { color: var(--muted); font-size: 12px; min-height: 18px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .legend { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .legend .bar { flex: 1; height: 8px; border-radius: 4px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: center; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  #results tbody tr { cursor: pointer; }
+  #results tbody tr:hover, #results tbody tr.active { background: #1b2536; }
+  .sim { display: inline-block; min-width: 48px; padding: 1px 6px; border-radius: 6px; background: #12324a; color: #9fd0ff; }
+  .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 6px; margin-left: 6px; }
+  .tag.sea { background: #0f3550; color: var(--sea); }
+  .tag.land { background: #3a2f1b; color: var(--land); }
+  .status { color: var(--muted); margin-bottom: 8px; }
+  .err { color: var(--hi); }
+  .tablewrap { overflow-x: auto; }
+  ol.steps { margin: 0; padding-left: 22px; }
+  ol.steps li { margin-bottom: 10px; }
+  ol.steps li b { display: block; margin-bottom: 2px; }
+  ol.steps li div { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  #breakdown td:first-child, #breakdown th:first-child { text-align: left; white-space: normal; }
+  .note { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+  .metric { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 13px; margin: 6px 0 12px; }
+  .metric span:nth-child(odd) { color: var(--muted); }
+  .good { color: var(--ok); } .bad { color: var(--hi); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Terrain Bot: Earth, Moon and Mars look-alike terrain</h1>
+  <p>Pick two bodies, then click anywhere on either map to find the places on the other one with the most similar terrain. Earth's underwater sea floor counts too.
+     By default it uses real measured elevations: NOAA ETOPO1 for Earth (including the ocean floor), NASA LRO LOLA for the Moon, and NASA MGS MOLA for Mars.
+     You can switch to your images, scaled from each body's real lowest point to its highest: Challenger Deep (−10,935 m) to Everest (+8,849 m) on Earth, Point Trieste (−9,129 m) to the Selenean summit (+10,786 m) on the Moon, and Badwater crater in Hellas (−8,201 m) to Olympus Mons (+21,229 m) on Mars.
+     Or use the images with a brightness curve fitted to the real data.</p>
+</header>
+
+<div class="toolbar">
+  <label>Compare <select id="bodyA"></select> with <select id="bodyB"></select></label>
+  <label>Data <select id="source"></select></label>
+  <label>Compare by
+    <select id="mode">
+      <option value="terrain">terrain (height, roughness, slope)</option>
+      <option value="elevation">elevation only</option>
+    </select>
+  </label>
+  <label>Earth points
+    <select id="surface">
+      <option value="any">land or underwater</option>
+      <option value="land">land only</option>
+      <option value="underwater">underwater only</option>
+    </select>
+  </label>
+  <label>Results <input id="k" type="number" min="1" max="25" value="8" style="width:64px"></label>
+  <button class="primary" id="topBtn">Show global top matches</button>
+  <span class="sep"></span>
+  <span id="lmButtons" style="display:contents"></span>
+</div>
+
+<main>
+  <div class="maps">
+    <section class="panel">
+      <h2><span id="titleA"></span> <small id="rangeA"></small></h2>
+      <div class="mapwrap" id="map-A"><img alt="elevation map"></div>
+      <div class="legend"><span id="minA"></span><span class="bar" id="barA"></span><span id="maxA"></span></div>
+      <div class="hover" id="hover-A"></div>
+    </section>
+    <section class="panel">
+      <h2><span id="titleB"></span> <small id="rangeB"></small></h2>
+      <div class="mapwrap" id="map-B"><img alt="elevation map"></div>
+      <div class="legend"><span id="minB"></span><span class="bar" id="barB"></span><span id="maxB"></span></div>
+      <div class="hover" id="hover-B"></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Results <small>similarity = 100 × exp(−distance); click a row to see why it matched</small></h2>
+    <div class="status" id="status">Loading…</div>
+    <div class="tablewrap"><table id="results" hidden>
+      <thead><tr>
+        <th>#</th><th>similarity</th>
+        <th id="hA">from</th><th>elevation</th><th>roughness 75 km</th>
+        <th id="hB">match</th><th>elevation</th><th>roughness 75 km</th><th>difference</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </section>
+
+  <div class="lower">
+    <section class="panel">
+      <h2>How this was found <small>step by step, with the real numbers</small></h2>
+      <ol class="steps" id="steps"></ol>
+      <div id="breakdownWrap" hidden>
+        <h2 style="margin-top:12px">Why match <span id="bdRank"></span> scored <span id="bdSim"></span></h2>
+        <div class="tablewrap"><table id="breakdown">
+          <thead><tr><th>feature</th><th id="bdA">from</th><th id="bdB">match</th><th>difference</th><th>in std-devs</th><th>weight</th><th>adds to distance²</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <p class="note mono" id="bdTotal"></p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>How accurate is it? <small>images checked against real data</small></h2>
+      <div id="validation"></div>
+      <h2 style="margin-top:8px">Data sources and landmarks</h2>
+      <div id="calib" class="note" style="white-space:pre-wrap"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let INFO = null;
+const GRADIENTS = {
+  earth: "linear-gradient(90deg,#000000,#1f4a7a,#2f8a7a,#5aa85a,#a8a855,#c8a87a,#fdfdfd)",
+  moon: "linear-gradient(90deg,#00224e,#575d6d,#a59c74,#fee838)",
+  mars: "linear-gradient(90deg,#000000,#7f4f32,#ff9f65,#ffc77f)",
+};
+const LANDMARK_LABELS = {
+  "earth,highest": "Everest", "earth,lowest": "Mariana Trench",
+  "moon,highest": "Selenean summit", "moon,lowest": "Antoniadi crater",
+  "mars,highest": "Olympus Mons", "mars,lowest": "Hellas (Badwater)",
+};
+
+const fmtM = (v) => (v == null ? "n/a" : `${Math.round(v).toLocaleString()} m`);
+const fmtNum = (v, d = 1) => (v == null ? "n/a" : v.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }));
+const fmtLL = (lat, lon) => `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"} ${Math.abs(lon).toFixed(1)}°${lon >= 0 ? "E" : "W"}`;
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+const source = () => $("#source").value;
+const bodies = () => INFO.sources[source()].bodies;
+const slots = () => ({ A: $("#bodyA").value, B: $("#bodyB").value });
+const slotOf = (body) => Object.entries(slots()).find(([, b]) => b === body)?.[0];
+const otherOf = (body) => (slots().A === body ? slots().B : slots().A);
+const params = () => `mode=${$("#mode").value}&source=${source()}&surface=${$("#surface").value}`;
+
+async function api(path) {
+  const r = await fetch(path);
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function toLatLon(body, ev) {
+  const b = bodies()[body];
+  const rect = ev.currentTarget.getBoundingClientRect();
+  const fx = (ev.clientX - rect.left) / rect.width, fy = (ev.clientY - rect.top) / rect.height;
+  return {
+    lat: b.lat_range[1] - fy * (b.lat_range[1] - b.lat_range[0]),
+    lon: b.lon_range[0] + fx * (b.lon_range[1] - b.lon_range[0]),
+  };
+}
+
+function place(body, lat, lon, cls, text, title) {
+  const slot = slotOf(body);
+  if (!slot) return null;
+  const b = bodies()[body];
+  const el = document.createElement("div");
+  el.className = `marker ${cls}`;
+  el.style.left = `${((lon - b.lon_range[0]) / (b.lon_range[1] - b.lon_range[0])) * 100}%`;
+  el.style.top = `${((b.lat_range[1] - lat) / (b.lat_range[1] - b.lat_range[0])) * 100}%`;
+  el.textContent = text;
+  if (title) el.title = title;
+  $(`#map-${slot}`).appendChild(el);
+  return el;
+}
+
+const clearMarkers = (all) => document.querySelectorAll(all ? ".marker" : ".marker:not(.lm)").forEach((m) => m.remove());
+const bodyKey = (name) => name.toLowerCase();
+
+function elevCell(p) {
+  const tag = p.body === "Earth" ? `<span class="tag ${p.underwater ? "sea" : "land"}">${p.underwater ? "underwater" : "land"}</span>` : "";
+  return `${fmtM(p.features.elevation_m)}${tag}`;
+}
+
+function showSteps(steps) {
+  $("#steps").innerHTML = steps.map((s) =>
+    `<li><b>${esc(s.title)}</b>${s.lines.map((l) => `<div>${esc(l)}</div>`).join("")}</li>`).join("");
+}
+
+const dp = (r) => (r.unit === "deg" ? 2 : 0);
+
+function showBreakdown(m) {
+  $("#breakdownWrap").hidden = false;
+  $("#bdRank").textContent = `#${m.rank}`;
+  $("#bdSim").textContent = `${m.similarity.toFixed(1)}%`;
+  $("#bdA").textContent = m.a.body;
+  $("#bdB").textContent = m.b.body;
+  $("#breakdown tbody").innerHTML = m.breakdown.map((r) => `<tr>
+      <td>${esc(r.label)}</td><td>${fmtNum(r.a, dp(r))} ${r.unit}</td><td>${fmtNum(r.b, dp(r))} ${r.unit}</td>
+      <td>${r.difference >= 0 ? "+" : ""}${fmtNum(r.difference, dp(r))} ${r.unit}</td><td>${r.z_difference >= 0 ? "+" : ""}${r.z_difference.toFixed(3)}</td>
+      <td>${(r.weight_share * 100).toFixed(1)}%</td><td>${r.contribution.toFixed(5)}</td></tr>`).join("");
+  const total = m.breakdown.reduce((s, r) => s + r.contribution, 0);
+  $("#bdTotal").textContent = `distance = √${total.toFixed(5)} = ${Math.sqrt(total).toFixed(4)}  →  similarity = 100 × exp(−${m.distance.toFixed(4)}) = ${m.similarity.toFixed(1)}%. ` +
+    `${m.a.body}: ${m.a.surface}. ${m.b.body}: ${m.b.surface}.`;
+}
+
+function showResults(matches, origin) {
+  clearMarkers(false);
+  const tbody = $("#results tbody");
+  tbody.innerHTML = "";
+  $("#breakdownWrap").hidden = true;
+  if (!matches.length) { $("#status").textContent = "No matches found."; $("#results").hidden = true; return; }
+  $("#hA").textContent = matches[0].a.body + " location";
+  $("#hB").textContent = matches[0].b.body + " location";
+  if (origin) place(bodyKey(origin.body), origin.lat, origin.lon, "origin", "", `${origin.body} ${fmtLL(origin.lat, origin.lon)}`);
+  const relief = (p) => p.features.relief_75km_m;
+
+  for (const m of matches) {
+    const markers = [];
+    if (!origin) markers.push(place(bodyKey(m.a.body), m.a.lat, m.a.lon, "", m.rank, `${m.a.body} #${m.rank}`));
+    markers.push(place(bodyKey(m.b.body), m.b.lat, m.b.lon, "", m.rank, `${m.b.body} #${m.rank}`));
+    const live = markers.filter(Boolean);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${m.rank}</td><td><span class="sim">${m.similarity.toFixed(1)}%</span></td>
+      <td>${fmtLL(m.a.lat, m.a.lon)}</td><td>${elevCell(m.a)}</td><td>${fmtM(relief(m.a))}</td>
+      <td>${fmtLL(m.b.lat, m.b.lon)}</td><td>${elevCell(m.b)}</td><td>${fmtM(relief(m.b))}</td>
+      <td>${m.elevation_difference_m >= 0 ? "+" : ""}${fmtM(m.elevation_difference_m)}</td>`;
+    const activate = () => {
+      document.querySelectorAll(".active").forEach((e) => e.classList.remove("active"));
+      tr.classList.add("active");
+      live.forEach((mk) => mk.classList.add("active"));
+      showBreakdown(m);
+    };
+    tr.addEventListener("click", activate);
+    live.forEach((mk) => mk.addEventListener("click", (e) => { e.stopPropagation(); activate(); tr.scrollIntoView({ block: "nearest" }); }));
+    tbody.appendChild(tr);
+  }
+  $("#results").hidden = false;
+  tbody.firstChild.click();
+}
+
+let lastQuery = null;
+
+async function runQuery(body, lat, lon, label) {
+  if (!slotOf(body)) return;
+  lastQuery = { body, lat, lon, label };
+  const target = otherOf(body);
+  const k = $("#k").value;
+  $("#status").textContent = `Searching ${bodies()[target].name} for terrain like ${label || fmtLL(+lat, +lon)}…`;
+  try {
+    const res = await api(`/api/query?body=${body}&target=${target}&lat=${lat}&lon=${lon}&k=${k}&${params()}`);
+    const o = res.origin, f = o.features;
+    $("#status").innerHTML = `Query: <b>${label ? esc(label) + ", " : ""}${o.body} ${fmtLL(o.lat, o.lon)}</b> is ${esc(o.surface)}; ` +
+      `75 km roughness ${fmtM(f.relief_75km_m)}, slope ${f.slope_75km_deg.toFixed(2)}°. Most similar places on ${bodies()[target].name}:`;
+    showResults(res.matches, o);
+    showSteps(res.steps);
+  } catch (e) { $("#status").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+
+async function runTop() {
+  lastQuery = null;
+  const k = $("#k").value, { A, B } = slots();
+  $("#status").textContent = `Comparing every ${bodies()[A].name} pixel with every ${bodies()[B].name} pixel…`;
+  try {
+    const res = await api(`/api/top?n=${k}&a=${A}&b=${B}&${params()}`);
+    $("#status").textContent = `Top ${res.matches.length} most similar ${bodies()[A].name}/${bodies()[B].name} locations (${$("#mode").value} mode, ${INFO.sources[source()].label}). Click a row to see why.`;
+    showResults(res.matches, null);
+    showSteps(res.steps);
+  } catch (e) { $("#status").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+
+const rerun = () => (lastQuery && slotOf(lastQuery.body) ? runQuery(lastQuery.body, lastQuery.lat, lastQuery.lon, lastQuery.label) : runTop());
+
+function wireMap(slot) {
+  const wrap = $(`#map-${slot}`);
+  let pending = null;
+  wrap.addEventListener("mousemove", (ev) => {
+    const body = slots()[slot];
+    const { lat, lon } = toLatLon(body, ev);
+    clearTimeout(pending);
+    pending = setTimeout(async () => {
+      try {
+        const h = await api(`/api/height?body=${body}&lat=${lat}&lon=${lon}&source=${source()}`);
+        $(`#hover-${slot}`).textContent = `${fmtLL(lat, lon)}: ${h.surface}`;
+      } catch { }
+    }, 60);
+  });
+  wrap.addEventListener("click", (ev) => {
+    const body = slots()[slot];
+    const { lat, lon } = toLatLon(body, ev);
+    runQuery(body, lat.toFixed(3), lon.toFixed(3));
+  });
+}
+
+function fillBodySelects() {
+  const keys = Object.keys(bodies());
+  for (const [id, fallback] of [["#bodyA", 0], ["#bodyB", 1]]) {
+    const sel = $(id), prev = sel.value;
+    sel.innerHTML = "";
+    keys.forEach((k) => sel.add(new Option(bodies()[k].name, k)));
+    sel.value = keys.includes(prev) ? prev : keys[fallback];
+  }
+}
+
+function renderPair() {
+  const src = source();
+  clearMarkers(true);
+  for (const [slot, key] of Object.entries(slots())) {
+    const b = bodies()[key];
+    $(`#map-${slot} img`).src = `/map/${src}/${key}.png`;
+    $(`#title${slot}`).textContent = b.name;
+    $(`#min${slot}`).textContent = fmtM(b.color_min_m);
+    $(`#max${slot}`).textContent = fmtM(b.color_max_m);
+    $(`#bar${slot}`).style.background = GRADIENTS[key] || GRADIENTS.moon;
+    $(`#range${slot}`).textContent = `${b.source_name} · ${b.width}×${b.height} px · ~${Math.round(b.pixel_km)} km per pixel`;
+    $(`#hover-${slot}`).textContent = `Hover to read elevation. Click to search ${bodies()[otherOf(key)].name}.`;
+    for (const lm of b.landmarks) place(key, lm.lat, lm.lon, "lm", lm.kind === "highest" ? "▲" : "▼", lm.name);
+  }
+  $("#lmButtons").innerHTML = "";
+  for (const key of Object.values(slots())) {
+    for (const lm of bodies()[key].landmarks) {
+      const btn = document.createElement("button");
+      btn.textContent = LANDMARK_LABELS[`${key},${lm.kind}`] || lm.name;
+      btn.title = `${lm.name}: ${fmtM(lm.elevation_m)}`;
+      btn.addEventListener("click", () => runQuery(key, lm.lat, lm.lon, lm.name));
+      $("#lmButtons").appendChild(btn);
+    }
+  }
+  $("#calib").textContent = Object.values(slots()).map((key) => {
+    const b = bodies()[key], c = b.calibration;
+    return `${b.name}: ${b.source_name}\n` + ["highest", "lowest"].map((k) => {
+      const e = c[k];
+      return `  ${k === "highest" ? "▲" : "▼"} ${e.landmark}: real ${fmtM(e.real_elevation_m)}; the map reads ${fmtM(e.map_elevation_at_real_location_m)} there. ` +
+        `The map's ${k} point is ${Math.round(e.map_pixel_offset_km).toLocaleString()} km away.`;
+    }).join("\n");
+  }).join("\n\n");
+}
+
+function renderValidation() {
+  const v = INFO.validation;
+  if (!v) { $("#validation").innerHTML = `<p class="note">Real elevation data isn't installed, so the images can't be checked.</p>`; return; }
+  $("#validation").innerHTML = v.map((c) => {
+    const good = c.median_abs_error_m < 600 && c.spearman > 0.9;
+    const how = c.source === "images-fit" ? "fitted curve" : "lowest-to-highest scale";
+    const lw = c.land_water_agreement != null ? `<span>land vs water</span><span>image says ${(c.underwater_fraction_image * 100).toFixed(0)}% underwater, reality is ${(c.underwater_fraction_real * 100).toFixed(0)}%; they agree on ${(c.land_water_agreement * 100).toFixed(0)}% of the surface</span>` : "";
+    return `<b>${c.body} image, ${how}</b> <span class="${good ? "good" : "bad"}">${good ? "accurate" : "inaccurate"}</span>
+      <div class="metric">
+        <span>rank correlation</span><span>${c.spearman.toFixed(3)} (1.0 = brightness perfectly tracks real height)</span>
+        <span>typical error</span><span>${fmtM(c.median_abs_error_m)} median, ${fmtM(c.rmse_m)} RMS, bias ${c.bias_m >= 0 ? "+" : ""}${fmtM(c.bias_m)}</span>
+        ${lw}
+      </div>`;
+  }).join("") + `<p class="note">Each image is compared pixel by pixel with the measured data. The Earth image is a shaded-relief picture, so brightness isn't height. The Mars image is clipped at both ends, so everything above about +7 km (Olympus and the Tharsis volcanoes) is pure white. That breaks a straight lowest-to-highest scale, but the fitted curve handles it.</p>`;
+}
+
+async function init() {
+  INFO = await api("/api/info");
+  const sel = $("#source");
+  for (const [key, s] of Object.entries(INFO.sources)) sel.add(new Option(s.label, key));
+  sel.value = INFO.default_source;
+  $("#mode").value = INFO.default_mode;
+  fillBodySelects();
+  $("#bodyA").value = "earth"; $("#bodyB").value = "moon";
+  wireMap("A"); wireMap("B");
+  renderPair();
+  renderValidation();
+  $("#topBtn").addEventListener("click", runTop);
+  sel.addEventListener("change", () => { fillBodySelects(); renderPair(); rerun(); });
+  for (const id of ["#bodyA", "#bodyB"]) {
+    $(id).addEventListener("change", (ev) => {
+      const other = id === "#bodyA" ? "#bodyB" : "#bodyA";
+      if ($(other).value === ev.target.value) {
+        $(other).value = Object.keys(bodies()).find((k) => k !== ev.target.value);
+      }
+      renderPair();
+      rerun();
+    });
+  }
+  $("#mode").addEventListener("change", rerun);
+  $("#surface").addEventListener("change", rerun);
+  runTop();
+}
+
+init().catch((e) => { $("#status").innerHTML = `<span class="err">${esc(e.message)}</span>`; });
+</script>
+</body>
+</html>

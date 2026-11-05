@@ -1,0 +1,5 @@
+{
+  "lat_range": [-77.0, 84.0],
+  "lon_range": [-180.0, 180.0],
+  "note": "Bounds fitted by maximising rank correlation with NOAA ETOPO1 (0.67 vs 0.43 for a full -90..90 globe)."
+}
