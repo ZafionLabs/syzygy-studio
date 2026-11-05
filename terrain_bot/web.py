@@ -13,12 +13,18 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 from PIL import Image
 
+from .dem import compare_to_dem
+from .explain import describe_surface, explain_query, explain_top, feature_label, feature_unit
 from .heightmap import Heightmap
-from .matcher import MODES, Match, MatchConfig, SitePoint, TerrainMatcher
+from .matcher import MODES, SURFACES, Match, MatchConfig, SitePoint, TerrainMatcher
 from .report import calibration_check
 
 STATIC = Path(__file__).resolve().parent / "static"
 CMAPS = {"earth": "gist_earth", "moon": "cividis"}
+SOURCE_LABELS = {
+    "dem": "Real measured data (NOAA ETOPO1 + NASA LRO LOLA)",
+    "images": "Your images (brightness calibrated to real extremes)",
+}
 
 
 def _clean(obj):
@@ -34,16 +40,28 @@ def _clean(obj):
 
 
 def _site(p: SitePoint) -> dict:
-    return {"body": p.body, "lat": p.lat, "lon": p.lon, "gray": p.gray, "features": p.features}
+    return {
+        "body": p.body,
+        "lat": p.lat,
+        "lon": p.lon,
+        "gray": p.gray,
+        "features": p.features,
+        "surface": describe_surface(p.body, p.elevation_m),
+        "underwater": p.body == "Earth" and p.elevation_m < 0,
+    }
 
 
 def _match(m: Match) -> dict:
     return {
         "rank": m.rank,
         "similarity": m.similarity,
+        "distance": m.distance,
         "elevation_difference_m": m.elevation_difference_m,
         "a": _site(m.a),
         "b": _site(m.b),
+        "breakdown": [
+            {**row, "label": feature_label(row["feature"]), "unit": feature_unit(row["feature"])} for row in m.breakdown
+        ],
     }
 
 
@@ -54,7 +72,7 @@ def render_map_png(hm: Heightmap, cmap_name: str) -> bytes:
     from matplotlib import colormaps
 
     t = (hm.elevation - hm.body.min_elevation_m) / hm.body.relief_m
-    rgba = colormaps[cmap_name](np.nan_to_num(t, nan=0.0))
+    rgba = colormaps[cmap_name](np.clip(np.nan_to_num(t, nan=0.0), 0, 1))
     rgba[..., 3] = np.where(hm.valid, 1.0, 0.0)
     buf = io.BytesIO()
     Image.fromarray((rgba * 255).astype(np.uint8), "RGBA").save(buf, format="PNG")
@@ -62,64 +80,114 @@ def render_map_png(hm: Heightmap, cmap_name: str) -> bytes:
 
 
 class TerrainApp:
-    """Holds one matcher per mode, built lazily from the same calibrated maps."""
+    """Serves one or more data sources; matchers and global results are built lazily and cached."""
 
-    def __init__(self, earth: Heightmap, moon: Heightmap, config: MatchConfig):
-        self.maps = {"earth": earth, "moon": moon}
+    def __init__(self, datasets: dict[str, tuple[Heightmap, Heightmap]], config: MatchConfig, default_source: str):
+        self.datasets = {k: {"earth": e, "moon": m} for k, (e, m) in datasets.items()}
         self.base_config = config
-        self._matchers: dict[str, TerrainMatcher] = {}
+        self.default_source = default_source
+        self._matchers: dict[tuple[str, str], TerrainMatcher] = {}
+        self._top: dict[tuple, dict] = {}
         self._lock = threading.Lock()
-        self._pngs = {k: render_map_png(hm, CMAPS[k]) for k, hm in self.maps.items()}
-        self.matcher(config.mode)
+        self._pngs = {
+            (src, body): render_map_png(hm, CMAPS[body]) for src, maps in self.datasets.items() for body, hm in maps.items()
+        }
+        self._info = self._build_info()
+        self.top(8, config.mode, default_source, "any")
 
-    def matcher(self, mode: str) -> TerrainMatcher:
+    def _source(self, source: str | None) -> str:
+        source = source or self.default_source
+        if source not in self.datasets:
+            raise ValueError(f"source must be one of {sorted(self.datasets)}")
+        return source
+
+    def matcher(self, mode: str, source: str) -> TerrainMatcher:
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}")
+        key = (source, mode)
         with self._lock:
-            if mode not in self._matchers:
+            if key not in self._matchers:
                 cfg = MatchConfig(**{**self.base_config.__dict__, "mode": mode})
-                self._matchers[mode] = TerrainMatcher(self.maps["earth"], self.maps["moon"], cfg)
-            return self._matchers[mode]
+                maps = self.datasets[source]
+                self._matchers[key] = TerrainMatcher(maps["earth"], maps["moon"], cfg)
+            return self._matchers[key]
 
-    def info(self) -> dict:
-        out = {"modes": list(MODES), "default_mode": self.base_config.mode, "bodies": {}}
-        for key, hm in self.maps.items():
-            b = hm.body
-            out["bodies"][key] = {
-                "name": b.name,
-                "lat_range": hm.lat_range,
-                "lon_range": hm.lon_range,
-                "width": hm.shape[1],
-                "height": hm.shape[0],
-                "min_elevation_m": b.min_elevation_m,
-                "max_elevation_m": b.max_elevation_m,
-                "landmarks": [
-                    {"kind": kind, "name": lm.name, "lat": lm.lat, "lon": lm.lon, "elevation_m": lm.elevation_m}
-                    for kind, lm in (("highest", b.highest), ("lowest", b.lowest))
-                ],
-                "calibration": calibration_check(hm),
-            }
+    def _build_info(self) -> dict:
+        out = {
+            "modes": list(MODES),
+            "surfaces": list(SURFACES),
+            "default_mode": self.base_config.mode,
+            "default_source": self.default_source,
+            "sources": {},
+        }
+        for src, maps in self.datasets.items():
+            bodies = {}
+            for key, hm in maps.items():
+                b = hm.body
+                bodies[key] = {
+                    "name": b.name,
+                    "source_name": hm.source_name,
+                    "lat_range": hm.lat_range,
+                    "lon_range": hm.lon_range,
+                    "width": hm.shape[1],
+                    "height": hm.shape[0],
+                    "pixel_km": hm.km_per_px[0],
+                    "color_min_m": b.min_elevation_m,
+                    "color_max_m": b.max_elevation_m,
+                    "landmarks": [
+                        {"kind": kind, "name": lm.name, "lat": lm.lat, "lon": lm.lon, "elevation_m": lm.elevation_m}
+                        for kind, lm in (("highest", b.highest), ("lowest", b.lowest))
+                    ],
+                    "calibration": calibration_check(hm),
+                }
+            out["sources"][src] = {"label": SOURCE_LABELS.get(src, src), "bodies": bodies}
+        if "images" in self.datasets and "dem" in self.datasets:
+            out["validation"] = [
+                compare_to_dem(self.datasets["images"][b], self.datasets["dem"][b]) for b in ("earth", "moon")
+            ]
         return out
 
-    def map_png(self, body: str) -> bytes:
-        if body not in self._pngs:
-            raise ValueError(f"unknown body {body!r}")
-        return self._pngs[body]
+    def info(self) -> dict:
+        return self._info
 
-    def height(self, body: str, lat: float, lon: float) -> dict:
-        hm = self.maps.get(body)
+    def map_png(self, source: str, body: str) -> bytes:
+        key = (source, body)
+        if key not in self._pngs:
+            raise ValueError(f"unknown map {source}/{body}")
+        return self._pngs[key]
+
+    def height(self, body: str, lat: float, lon: float, source: str | None = None) -> dict:
+        hm = self.datasets[self._source(source)].get(body)
         if hm is None:
             raise ValueError(f"unknown body {body!r}")
         r, c = hm.pixel_of(lat, lon)
-        return {"body": hm.body.name, "lat": lat, "lon": lon, "elevation_m": float(hm.elevation[r, c]),
-                "gray": float(hm.gray[r, c])}
+        elev = float(hm.elevation[r, c])
+        return {
+            "body": hm.body.name,
+            "lat": lat,
+            "lon": lon,
+            "elevation_m": elev,
+            "gray": float(hm.gray[r, c]),
+            "surface": describe_surface(hm.body.name, elev) if math.isfinite(elev) else "no data",
+        }
 
-    def query(self, body: str, lat: float, lon: float, k: int, mode: str) -> dict:
-        origin, results = self.matcher(mode).query(body, lat, lon, k)
-        return {"origin": _site(origin), "matches": [_match(m) for m in results]}
+    def query(self, body: str, lat: float, lon: float, k: int, mode: str, source: str | None, surface: str) -> dict:
+        m = self.matcher(mode, self._source(source))
+        origin, results = m.query(body, lat, lon, k, surface=surface)
+        return {
+            "origin": _site(origin),
+            "matches": [_match(x) for x in results],
+            "steps": explain_query(m, body, origin, results, surface),
+        }
 
-    def top(self, n: int, mode: str) -> dict:
-        return {"matches": [_match(m) for m in self.matcher(mode).top_matches(n)]}
+    def top(self, n: int, mode: str, source: str | None, surface: str) -> dict:
+        source = self._source(source)
+        key = (source, mode, surface, n)
+        if key not in self._top:
+            m = self.matcher(mode, source)
+            matches = m.top_matches(n, surface=surface)
+            self._top[key] = {"matches": [_match(x) for x in matches], "steps": explain_top(m, matches, surface)}
+        return self._top[key]
 
 
 def make_handler(app: TerrainApp):
@@ -142,22 +210,27 @@ def make_handler(app: TerrainApp):
             url = urlparse(self.path)
             q = {k: v[-1] for k, v in parse_qs(url.query).items()}
             path = url.path
+            mode = q.get("mode", app.base_config.mode)
+            source = q.get("source")
+            surface = q.get("surface", "any")
             try:
                 if path in ("/", "/index.html"):
                     self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
                 elif path == "/favicon.ico":
                     self._send(204, b"", "image/x-icon", cache=True)
                 elif path.startswith("/map/") and path.endswith(".png"):
-                    self._send(200, app.map_png(path[len("/map/"):-4]), "image/png", cache=True)
+                    parts = path[len("/map/"):-4].split("/")
+                    src, body = (parts if len(parts) == 2 else (app.default_source, parts[0]))
+                    self._send(200, app.map_png(src, body), "image/png", cache=True)
                 elif path == "/api/info":
                     self._json(200, app.info())
                 elif path == "/api/height":
-                    self._json(200, app.height(q["body"], float(q["lat"]), float(q["lon"])))
+                    self._json(200, app.height(q["body"], float(q["lat"]), float(q["lon"]), source))
                 elif path == "/api/query":
-                    self._json(200, app.query(q["body"], float(q["lat"]), float(q["lon"]),
-                                              min(int(q.get("k", 5)), 25), q.get("mode", app.base_config.mode)))
+                    k = min(int(q.get("k", 5)), 25)
+                    self._json(200, app.query(q["body"], float(q["lat"]), float(q["lon"]), k, mode, source, surface))
                 elif path == "/api/top":
-                    self._json(200, app.top(min(int(q.get("n", 10)), 50), q.get("mode", app.base_config.mode)))
+                    self._json(200, app.top(min(int(q.get("n", 10)), 50), mode, source, surface))
                 else:
                     self._json(404, {"error": "not found"})
             except (ValueError, KeyError) as exc:

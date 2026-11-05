@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,7 +38,12 @@ def load_gray(path: str | Path, alpha_threshold: int = 128) -> tuple[np.ndarray,
 
 @dataclass
 class Heightmap:
-    """A calibrated elevation grid in an equirectangular (plate carree) projection."""
+    """An elevation grid in an equirectangular (plate carree) projection.
+
+    ``source`` is ``"image"`` for brightness calibrated to the body's real
+    extremes, or ``"dem"`` when ``elevation`` comes straight from a measured
+    elevation model (``gray`` then holds the raw DEM values).
+    """
 
     body: Body
     gray: np.ndarray
@@ -47,6 +53,8 @@ class Heightmap:
     lon_range: tuple[float, float] = (-180.0, 180.0)
     gray_min: float = 0.0
     gray_max: float = 255.0
+    source: str = "image"
+    source_name: str = ""
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -101,6 +109,18 @@ class Heightmap:
         col = int(np.floor((lon - lon_min) / (lon_max - lon_min) * w))
         return int(np.clip(row, 0, h - 1)), int(np.clip(col, 0, w - 1))
 
+    def pixels_of(self, lats: np.ndarray, lons: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Vectorised :meth:`pixel_of`; out-of-map coordinates are clipped to the edge."""
+        h, w = self.shape
+        lat_min, lat_max = self.lat_range
+        lon_min, lon_max = self.lon_range
+        lons = np.asarray(lons, dtype=np.float64)
+        if self.wraps_longitude:
+            lons = (lons - lon_min) % 360.0 + lon_min
+        rows = np.floor((lat_max - np.asarray(lats)) / (lat_max - lat_min) * h).astype(int)
+        cols = np.floor((lons - lon_min) / (lon_max - lon_min) * w).astype(int)
+        return np.clip(rows, 0, h - 1), np.clip(cols, 0, w - 1)
+
     def latlon_of(self, row: int, col: int) -> tuple[float, float]:
         return float(self.lats[row]), float(self.lons[col])
 
@@ -141,17 +161,29 @@ def calibrate(
     return elevation, float(g_lo), float(g_hi)
 
 
+def read_sidecar(path: str | Path) -> dict:
+    """Optional ``<image>.json`` next to a map, e.g. ``{"lat_range": [-77, 84]}``."""
+    side = Path(path).with_suffix(".json")
+    return json.loads(side.read_text()) if side.exists() else {}
+
+
 def load_heightmap(
     path: str | Path,
     body: Body,
-    lat_range: tuple[float, float] = (-90.0, 90.0),
-    lon_range: tuple[float, float] = (-180.0, 180.0),
+    lat_range: tuple[float, float] | None = None,
+    lon_range: tuple[float, float] | None = None,
     clip_percentiles: tuple[float, float] = (0.0, 100.0),
     gamma: float = 1.0,
     alpha_threshold: int = 128,
 ) -> Heightmap:
+    """Load an image heightmap; missing bounds come from a sidecar JSON or default to the whole globe."""
+    meta = read_sidecar(path)
+    lat_range = tuple(lat_range or meta.get("lat_range", (-90.0, 90.0)))
+    lon_range = tuple(lon_range or meta.get("lon_range", (-180.0, 180.0)))
     gray, valid = load_gray(path, alpha_threshold=alpha_threshold)
-    return heightmap_from_array(gray, body, valid, lat_range, lon_range, clip_percentiles, gamma)
+    hm = heightmap_from_array(gray, body, valid, lat_range, lon_range, clip_percentiles, gamma)
+    hm.source_name = f"image {Path(path).name}"
+    return hm
 
 
 def heightmap_from_array(
@@ -183,3 +215,26 @@ def haversine_km(lat1, lon1, lat2, lon2, radius_km: float):
     lat1, lon1, lat2, lon2 = map(np.radians, (lat1, lon1, lat2, lon2))
     a = np.sin((lat2 - lat1) / 2) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin((lon2 - lon1) / 2) ** 2
     return 2 * radius_km * np.arcsin(np.sqrt(np.clip(a, 0.0, 1.0)))
+
+
+def heightmap_from_dem(
+    elevation: np.ndarray,
+    body: Body,
+    lat_range: tuple[float, float],
+    lon_range: tuple[float, float],
+    source_name: str,
+) -> Heightmap:
+    elevation = np.asarray(elevation, dtype=np.float64)
+    valid = np.isfinite(elevation)
+    return Heightmap(
+        body=body,
+        gray=elevation,
+        valid=valid,
+        elevation=elevation,
+        lat_range=tuple(lat_range),
+        lon_range=tuple(lon_range),
+        gray_min=float(np.nanmin(elevation)),
+        gray_max=float(np.nanmax(elevation)),
+        source="dem",
+        source_name=source_name,
+    )

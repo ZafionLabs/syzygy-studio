@@ -20,9 +20,13 @@ def calibration_check(hm: Heightmap) -> dict:
         "body": body.name,
         "datum": body.datum,
         "gray_range": [hm.gray_min, hm.gray_max],
-        "elevation_range_m": [body.min_elevation_m, body.max_elevation_m],
-        "metres_per_gray_level": body.relief_m / (hm.gray_max - hm.gray_min),
+        "elevation_range_m": (
+            [body.min_elevation_m, body.max_elevation_m] if hm.source == "image" else [hm.gray_min, hm.gray_max]
+        ),
+        "metres_per_gray_level": body.relief_m / (hm.gray_max - hm.gray_min) if hm.source == "image" else None,
         "pixel_size_km": list(hm.km_per_px),
+        "source": hm.source,
+        "source_name": hm.source_name,
     }
     for key, landmark in (("highest", body.highest), ("lowest", body.lowest)):
         r, c = ext[key]
@@ -46,16 +50,25 @@ def calibration_check(hm: Heightmap) -> dict:
 
 
 def format_calibration(check: dict) -> str:
-    lines = [
-        f"{check['body']}: gray {check['gray_range'][0]:.0f}-{check['gray_range'][1]:.0f} -> "
-        f"{check['elevation_range_m'][0]:,.0f} m .. {check['elevation_range_m'][1]:,.0f} m "
-        f"({check['metres_per_gray_level']:.1f} m per gray level, datum: {check['datum']})",
-    ]
+    lo, hi = check["elevation_range_m"]
+    if check["source"] == "image":
+        head = (
+            f"{check['body']} ({check['source_name']}): gray {check['gray_range'][0]:.0f}-{check['gray_range'][1]:.0f} -> "
+            f"{lo:,.0f} m .. {hi:,.0f} m ({check['metres_per_gray_level']:.1f} m per gray level, datum: {check['datum']})"
+        )
+        what = {"highest": "lightest pixel", "lowest": "darkest pixel"}
+    else:
+        head = (
+            f"{check['body']} ({check['source_name']}): measured elevations {lo:,.0f} m .. {hi:,.0f} m "
+            f"(datum: {check['datum']}; each cell is an average/sample, so single peaks and trenches are shallower)"
+        )
+        what = {"highest": "highest cell", "lowest": "lowest cell"}
+    lines = [head]
     for key in ("highest", "lowest"):
         e = check[key]
         lines.append(
-            f"  {key:<7} = {e['landmark']} ({e['real_elevation_m']:,.0f} m). Map's {'lightest' if key == 'highest' else 'darkest'} "
-            f"pixel is at {e['map_pixel_lat']:.1f}, {e['map_pixel_lon']:.1f} "
+            f"  {key:<7} = {e['landmark']} ({e['real_elevation_m']:,.0f} m). Map's {what[key]} "
+            f"is at {e['map_pixel_lat']:.1f}, {e['map_pixel_lon']:.1f} "
             f"({e['map_pixel_offset_km']:,.0f} km from the real one); map reads "
             f"{e['map_elevation_at_real_location_m']:,.0f} m at the real location."
         )
@@ -66,19 +79,25 @@ def _fmt_latlon(lat: float, lon: float) -> str:
     return f"{abs(lat):5.1f}{'N' if lat >= 0 else 'S'} {abs(lon):6.1f}{'E' if lon >= 0 else 'W'}"
 
 
+def _where(p) -> str:
+    if p.body != "Earth":
+        return ""
+    return "sea" if p.elevation_m < 0 else "land"
+
+
 def format_matches(matches: list[Match]) -> str:
     if not matches:
         return "(no matches)"
     a_name, b_name = matches[0].a.body, matches[0].b.body
     header = (
-        f"{'#':>3}  {'sim%':>5}  {a_name + ' location':<15} {a_name + ' elev':>11}  "
-        f"{b_name + ' location':<15} {b_name + ' elev':>11}  {'diff':>8}"
+        f"{'#':>3}  {'sim%':>5}  {a_name + ' location':<15} {a_name + ' elev':>11}      "
+        f"{b_name + ' location':<15} {b_name + ' elev':>11}      {'diff':>8}"
     )
     lines = [header, "-" * len(header)]
     for m in matches:
         lines.append(
-            f"{m.rank:>3}  {m.similarity:5.1f}  {_fmt_latlon(m.a.lat, m.a.lon):<15} {m.a.elevation_m:>9,.0f} m  "
-            f"{_fmt_latlon(m.b.lat, m.b.lon):<15} {m.b.elevation_m:>9,.0f} m  {m.elevation_difference_m:>+7,.0f}m"
+            f"{m.rank:>3}  {m.similarity:5.1f}  {_fmt_latlon(m.a.lat, m.a.lon):<15} {m.a.elevation_m:>9,.0f} m {_where(m.a):<4} "
+            f"{_fmt_latlon(m.b.lat, m.b.lon):<15} {m.b.elevation_m:>9,.0f} m {_where(m.b):<4} {m.elevation_difference_m:>+7,.0f}m"
         )
     return "\n".join(lines)
 
@@ -138,7 +157,7 @@ def plot_matches(matcher: TerrainMatcher, matches: list[Match], path: Path) -> N
             ax.scatter(lm.lon, lm.lat, marker=marker, s=120, c="red", edgecolors="white", zorder=5)
             ax.annotate(lm.name, (lm.lon, lm.lat), xytext=(6, 6), textcoords="offset points", color="red", fontsize=8)
         ax.set_title(
-            f"{hm.body.name}: lightest = {hm.body.max_elevation_m:,.0f} m, darkest = {hm.body.min_elevation_m:,.0f} m"
+            f"{hm.body.name} ({hm.source_name}): {np.nanmin(hm.elevation):,.0f} m to {np.nanmax(hm.elevation):,.0f} m"
         )
         ax.set_xlabel("longitude (deg)")
         ax.set_ylabel("latitude (deg)")

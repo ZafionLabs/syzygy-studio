@@ -6,7 +6,9 @@ from PIL import Image
 
 from terrain_bot import EARTH, MOON, MatchConfig, TerrainMatcher, heightmap_from_array, load_heightmap
 from terrain_bot.bodies import Body
+from terrain_bot import dem
 from terrain_bot.cli import handle_chat, main
+from terrain_bot.explain import describe_surface, explain_query, format_steps
 from terrain_bot.features import compute_features
 
 DATA = Path(__file__).resolve().parent.parent / "data"
@@ -107,17 +109,94 @@ def test_top_matches_respect_separation():
                 assert haversine_km(*pts[i], *pts[j], 180 / np.pi) >= 15 - 1e-6
 
 
+def test_kdtree_search_equals_brute_force():
+    hm_a = heightmap_from_array(_synthetic_terrain(seed=7), EARTH)
+    hm_b = heightmap_from_array(_synthetic_terrain(seed=8), MOON)
+    for mode in ("terrain", "elevation"):
+        matcher = TerrainMatcher(hm_a, hm_b, MatchConfig(mode=mode))
+        rng = np.random.default_rng(0)
+        for lat, lon in zip(rng.uniform(-80, 80, 15), rng.uniform(-180, 180, 15)):
+            for surface in ("any", "land", "underwater"):
+                _, results = matcher.query("earth", lat, lon, k=1, surface=surface)
+                idx, d = matcher.brute_force_best("earth", lat, lon, surface=surface)
+                assert results[0].distance == pytest.approx(d, abs=1e-12)
+                assert (results[0].b.row, results[0].b.col) == (matcher.b.rows[idx], matcher.b.cols[idx])
+                total = sum(r["contribution"] for r in results[0].breakdown)
+                assert np.sqrt(total) == pytest.approx(results[0].distance, rel=1e-9)
+
+
+def test_top_matches_bounded_search_is_exact():
+    hm_a = heightmap_from_array(_synthetic_terrain(seed=9), EARTH)
+    hm_b = heightmap_from_array(_synthetic_terrain(seed=10), MOON)
+    matcher = TerrainMatcher(hm_a, hm_b)
+    a_idx, _ = matcher.a.subset("any")
+    b_idx, b_tree = matcher.b.subset("any")
+    bounded = matcher.top_matches(6)
+    unbounded = matcher._top_within(a_idx, b_idx, b_tree, 6, np.inf)
+    assert [(m.a.row, m.a.col, m.b.row, m.b.col) for m in bounded] == [
+        (m.a.row, m.a.col, m.b.row, m.b.col) for m in unbounded
+    ]
+
+
+def test_surface_filter_selects_land_or_sea_floor():
+    hm_a = heightmap_from_array(_synthetic_terrain(seed=11), EARTH)
+    hm_b = heightmap_from_array(_synthetic_terrain(seed=12), MOON)
+    matcher = TerrainMatcher(hm_a, hm_b)
+    _, wet = matcher.query("moon", 0, 0, k=5, surface="underwater")
+    _, dry = matcher.query("moon", 0, 0, k=5, surface="land")
+    assert all(m.b.elevation_m < 0 for m in wet)
+    assert all(m.b.elevation_m >= 0 for m in dry)
+    assert all(m.a.elevation_m < 0 for m in matcher.top_matches(4, surface="underwater"))
+
+
+def test_explanation_steps_show_the_working():
+    hm_a = heightmap_from_array(_synthetic_terrain(seed=13), EARTH)
+    hm_b = heightmap_from_array(_synthetic_terrain(seed=14), MOON)
+    matcher = TerrainMatcher(hm_a, hm_b)
+    origin, results = matcher.query("earth", 10, 20, k=3)
+    steps = explain_query(matcher, "earth", origin, results)
+    text = format_steps(steps)
+    assert "Convert brightness to real elevation" in text
+    assert f"{origin.gray:.0f}" in text and "Challenger Deep" in text
+    assert "Search every pixel" in text and "similarity = 100 x exp" in text
+    assert describe_surface("Earth", -4100) == "underwater: sea floor 4,100 m below sea level"
+    assert "no sea level" in describe_surface("Moon", -100)
+
+
+def test_sidecar_sets_image_bounds(tmp_path):
+    path = tmp_path / "map.png"
+    Image.fromarray((_synthetic_terrain(20, 40)).astype(np.uint8), "L").save(path)
+    (tmp_path / "map.json").write_text('{"lat_range": [-60, 80]}')
+    hm = load_heightmap(path, EARTH)
+    assert hm.lat_range == (-60, 80)
+    assert load_heightmap(path, EARTH, lat_range=(-90, 90)).lat_range == (-90, 90)
+
+
 @pytest.mark.skipif(not (DATA / "earth_heightmap.png").exists(), reason="bundled data missing")
 def test_bundled_maps_end_to_end(tmp_path):
-    assert main(["analyze", "--top", "5", "--out", str(tmp_path), "--no-plots"]) == 0
+    assert main(["analyze", "--source", "images", "--top", "5", "--out", str(tmp_path), "--no-plots"]) == 0
     assert (tmp_path / "matches.csv").read_text().count("\n") == 6
 
     earth = load_heightmap(DATA / "earth_heightmap.png", EARTH)
     moon = load_heightmap(DATA / "moon_heightmap.png", MOON)
     matcher = TerrainMatcher(earth, moon)
-    reply = handle_chat(matcher, "everest", k=2)
-    assert "Mount Everest" in reply and "Moon location" in reply
+    reply = handle_chat(matcher, "everest steps", k=2)
+    assert "Mount Everest" in reply and "Moon location" in reply and "Step 1." in reply
     assert "outside the map" in handle_chat(matcher, "moon 100 0")
+    assert "sea" in handle_chat(matcher, "moon 0 0 underwater", k=2)
+
+
+@pytest.mark.skipif(not dem.dem_available("earth") or not dem.dem_available("moon"), reason="DEMs not downloaded")
+def test_real_dem_data():
+    earth, moon = dem.load_dem("earth"), dem.load_dem("moon")
+    assert earth.elevation_at(31.5, 35.5) == pytest.approx(-430, abs=100)  # Dead Sea shore
+    assert earth.elevation_at(11.37, 142.59) < -8000  # Mariana Trench
+    assert earth.elevation_at(0, -150) < -3000  # Pacific abyssal plain
+    assert moon.elevation_at(5.41, -158.63) > 10000  # Selenean summit
+    assert moon.elevation_at(-70.36, -172.49) < -8000  # Antoniadi crater
+
+    comparison = dem.compare_to_dem(load_heightmap(DATA / "moon_heightmap.png", MOON), moon)
+    assert comparison["spearman"] > 0.95
 
 
 def test_web_api_round_trip():
@@ -131,17 +210,22 @@ def test_web_api_round_trip():
 
     hm_a = heightmap_from_array(_synthetic_terrain(seed=5), EARTH)
     hm_b = heightmap_from_array(_synthetic_terrain(seed=6), MOON)
-    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(TerrainApp(hm_a, hm_b, MatchConfig())))
+    app = TerrainApp({"images": (hm_a, hm_b)}, MatchConfig(), default_source="images")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(app))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{server.server_address[1]}"
     try:
         assert b"Terrain Bot" in urlopen(base + "/").read()
-        assert urlopen(base + "/map/moon.png").read().startswith(b"\x89PNG")
+        assert urlopen(base + "/map/images/moon.png").read().startswith(b"\x89PNG")
         info = json.load(urlopen(base + "/api/info"))
-        assert info["bodies"]["earth"]["max_elevation_m"] == pytest.approx(8848.86)
-        res = json.load(urlopen(base + "/api/query?body=moon&lat=10&lon=20&k=3&mode=elevation"))
+        assert info["sources"]["images"]["bodies"]["earth"]["color_max_m"] == pytest.approx(8848.86)
+        res = json.load(urlopen(base + "/api/query?body=moon&lat=10&lon=20&k=3&mode=elevation&surface=underwater"))
         assert len(res["matches"]) == 3 and res["matches"][0]["b"]["body"] == "Earth"
-        assert len(json.load(urlopen(base + "/api/top?n=4"))["matches"]) == 4
+        assert all(m["b"]["underwater"] for m in res["matches"])
+        assert res["steps"][0]["title"] == "Locate the point on the map"
+        assert len(res["matches"][0]["breakdown"]) == 6
+        top = json.load(urlopen(base + "/api/top?n=4"))
+        assert len(top["matches"]) == 4 and top["steps"]
         with pytest.raises(HTTPError) as err:
             urlopen(base + "/api/height?body=earth&lat=120&lon=0")
         assert err.value.code == 400

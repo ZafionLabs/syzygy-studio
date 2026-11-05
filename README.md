@@ -1,76 +1,81 @@
 # terrain-bot: Earth vs Moon look-alike terrain
 
-`terrain-bot` turns grayscale Earth and Moon heightmaps into **real elevations** and
-finds the places on each body whose terrain is most alike.
+`terrain-bot` finds the places on Earth and the Moon whose terrain is most alike, using **real
+elevations**. Earth's underwater sea floor is included, and every answer comes with the
+step-by-step working.
 
-## Calibration to real data
+## Data
 
-Each map's brightness is mapped linearly onto that body's true elevation range:
+| Source (`--source`) | Earth | Moon |
+|---|---|---|
+| `dem` (default): real measured data in `data/dem/` | NOAA **ETOPO1** 1 arc-minute global relief (land + ocean bathymetry, ice surface), sampled every 0.25 deg | NASA **LRO LOLA LDEM_4**, 4 px/deg, heights relative to the 1737.4 km mean radius |
+| `images`: your grayscale maps in `data/` | lightest pixel = Mount Everest **+8,848.86 m**, darkest = Challenger Deep (Mariana Trench) **-10,935 m** | lightest = Selenean summit **+10,786 m**, darkest = Point Trieste (Antoniadi crater) **-9,129 m** |
 
-| Body  | Lightest pixel becomes                         | Darkest pixel becomes                               | Datum                       |
-|-------|------------------------------------------------|-----------------------------------------------------|-----------------------------|
-| Earth | Mount Everest, **+8,848.86 m** (2020 survey)   | Challenger Deep, Mariana Trench, **-10,935 m** (2021) | mean sea level              |
-| Moon  | Selenean summit, **+10,786 m** (LRO LOLA)      | Point Trieste, Antoniadi crater, **-9,129 m** (LOLA) | mean lunar radius 1737.4 km |
+Run `python -m terrain_bot download-dem` to refetch the DEMs (about 3.5 MB total).
 
-With the bundled 8-bit maps that is ~91 m per gray level on Earth and ~82 m on the Moon.
-`terrain-bot calibrate` also checks the map against the real landmark locations, e.g. the
-Moon map's lightest pixel lands 13 km from the real Selenean summit.
+### How accurate are the images? (`python -m terrain_bot validate`)
 
-## How similarity is measured
+Each calibrated image is compared pixel by pixel with the real data at the same coordinates:
 
-For every pixel the bot computes, in real units:
+| Image | Rank correlation | Median error | Land/water |
+|---|---|---|---|
+| Moon | **0.989** | 400 m | n/a |
+| Earth | 0.670 | 1,517 m | agrees on 72% (the image says 86% is underwater; reality is 72%) |
 
-* `elevation_m`: calibrated height
-* `mean_<s>km_m` / `relief_<s>km_m`: mean and standard deviation of elevation in a
-  Gaussian window of *s* ground kilometres (default 75 km and 250 km)
-* `slope_75km_deg`: regional slope
+The Moon image is a faithful elevation map: its lightest pixel is 13 km from the real Selenean
+summit. The Earth image is a shaded-relief picture, so brightness isn't height. Lowlands like the
+Amazon are as dark as abyssal plains, and continental shelves are as bright as hills. No
+brightness-to-height curve can fix that, which is why measured data is the default. The image's
+bounds (84 N to 77 S) were fitted against ETOPO1 and stored in `data/earth_heightmap.json`.
 
-Windows are defined in kilometres (not pixels) using each body's radius and widened by
-1/cos(latitude), so Earth (~48 km/pixel here) and Moon (~12 km/pixel) are compared at the same
-physical scale. Features are z-scored over both bodies, weighted (elevation x3, slope x0.5,
-others x1), and matched with a KD-tree. Reported matches are spread out with a minimum arc
-separation (default 5 degrees) on both bodies. `similarity = 100 * exp(-weighted RMS z-distance)`.
+## How a match is found (shown by `query`, the chat bot's `steps`, and the web UI)
 
-Use `--mode elevation` to compare height alone.
+1. **Locate** the coordinate's pixel. Resolution limits precision: about 28 km per pixel for Earth
+   and 7.6 km for the Moon with the DEMs.
+2. **Read the elevation.** DEM values are already in metres. For images,
+   `elevation = min + (gray - darkest) / (lightest - darkest) x (max - min)`.
+3. **Classify** the point: Earth land or underwater (sea level = 0 m). The Moon has no sea level,
+   so its heights are relative to the mean radius.
+4. **Describe the surroundings** in real ground kilometres: average and roughness (standard
+   deviation) of elevation within 75 km and 250 km, plus regional slope. The windows are widened by
+   1/cos(latitude).
+5. **Normalise** each feature by its area-weighted standard deviation over both bodies and weight
+   it: elevation 40%, slope 7%, the others 13% each. In `--mode elevation`, height carries all of
+   the weight and the other features only break ties.
+6. **Search every pixel** of the other body (about 1 million) with an exact KD-tree. The tests
+   check that it returns the same best match as brute force.
+7. **Score**: `distance = sqrt(sum weight x (difference / std)^2)` and
+   `similarity = 100 x exp(-distance)`. The per-feature contributions are listed.
+8. **Spread out** the results so no two are within 5 deg of each other.
+
+`--surface land|underwater` (and the web UI's "Earth points" selector) restricts the Earth side to
+dry land or sea floor.
 
 ## Usage
 
 ```bash
 pip install -r requirements.txt
 
-# Globally most similar Earth/Moon pairs -> results/ (CSV, JSON, summary, map, histogram)
-python -m terrain_bot analyze --top 20
-
-# Places on the Moon most like a point on Earth (or vice versa)
-python -m terrain_bot query --body earth --lat 36.1 --lon -112.1
-python -m terrain_bot query --body moon --lat -70.36 --lon -172.49
-
-# Calibration and landmark sanity check
-python -m terrain_bot calibrate
-
-# Interactive bot: "everest", "earth 27.99 86.93", "height moon 5.4 -158.6", "top 10"
-python -m terrain_bot chat
-
-# Browser UI at http://localhost:8000: hover to read elevations, click a map to find look-alikes
-python -m terrain_bot serve
+python -m terrain_bot serve                    # browser UI at http://localhost:8000
+python -m terrain_bot query --body moon --lat -70.36 --lon -172.49 --surface underwater
+python -m terrain_bot analyze --top 20         # results/: CSV, JSON, summary, map, histogram
+python -m terrain_bot chat                     # "everest steps", "moon 0 0 underwater", "top 10"
+python -m terrain_bot validate                 # image accuracy vs real data
+python -m terrain_bot calibrate                # data ranges and landmark checks
 ```
 
-To share the browser UI temporarily, run `cloudflared tunnel --url http://localhost:8000`, which prints a
-public `https://<random>.trycloudflare.com` link.
+Add `--source images` to use the grayscale images instead of the DEMs. Use your own images with
+`--earth path.png --moon path.png`. They are assumed to be equirectangular. Set the bounds with
+`--earth-lat-range S N` (and the related flags) or with a `<image>.json` sidecar. Transparent
+pixels are ignored, and 16-bit PNG/TIFF files are read at full precision.
 
-Use your own images with `--earth path.png --moon path.png`. Maps are assumed to be
-equirectangular, covering -180 to 180 longitude and -90 to 90 latitude. Override with
-`--earth-lat-range S N`, `--earth-lon-range W E` (same for `--moon-*`). Transparent pixels are
-ignored. 16-bit PNG/TIFF heightmaps are read at full precision. `--clip-percentiles 0.01 99.99`
-stops a few noisy pixels from setting the extremes, and `--gamma` handles non-linear encodings.
+To share the UI temporarily, run `cloudflared tunnel --url http://localhost:8000`.
 
 ## Caveats
 
-* The bundled Earth image is a shaded-relief rendering, not a pure DEM, and its projection is only
-  roughly equirectangular. Its lightest pixel is in Tibet (~800 km from Everest) and trenches are
-  not the darkest pixels, so treat Earth elevations as approximate. For precise results, use real
-  DEMs exported to grayscale (e.g. NOAA ETOPO 2022 for Earth, LRO LOLA LDEM for the Moon).
-* Linear calibration assumes brightness is proportional to height.
+* The quarter-degree DEM cells can't capture single peaks or trench bottoms. Everest's cell reads
+  5,380 m and the Mariana cell reads -8,810 m.
+* Image calibration is linear and assumes brightness is proportional to height.
 
 ## Tests
 
