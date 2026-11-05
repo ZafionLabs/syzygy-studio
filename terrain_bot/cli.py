@@ -150,6 +150,16 @@ def cmd_chat(args) -> int:
             print(exc)
 
 
+def cmd_serve(args) -> int:
+    from .web import TerrainApp, serve
+
+    print("Loading heightmaps and building terrain index...")
+    earth, moon = _load(args)
+    cfg = MatchConfig(mode=args.mode, scales_km=tuple(args.scales_km), min_separation_deg=args.min_separation_deg)
+    serve(TerrainApp(earth, moon, cfg), host=args.host, port=args.port)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="terrain-bot",
@@ -180,6 +190,12 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(p)
     p.add_argument("--top", type=int, default=5)
     p.set_defaults(func=cmd_chat)
+
+    p = sub.add_parser("serve", help="run the browser UI")
+    _add_common(p)
+    p.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 to allow other machines to connect")
+    p.add_argument("--port", type=int, default=8000)
+    p.set_defaults(func=cmd_serve)
     return parser
 
 

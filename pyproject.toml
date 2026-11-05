@@ -18,5 +18,8 @@ terrain-bot = "terrain_bot.cli:main"
 [tool.setuptools]
 packages = ["terrain_bot"]
 
+[tool.setuptools.package-data]
+terrain_bot = ["static/*.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

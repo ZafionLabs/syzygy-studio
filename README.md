@@ -50,7 +50,13 @@ python -m terrain_bot calibrate
 
 # Interactive bot: "everest", "earth 27.99 86.93", "height moon 5.4 -158.6", "top 10"
 python -m terrain_bot chat
+
+# Browser UI at http://localhost:8000: hover to read elevations, click a map to find look-alikes
+python -m terrain_bot serve
 ```
+
+To share the browser UI temporarily, run `cloudflared tunnel --url http://localhost:8000`, which prints a
+public `https://<random>.trycloudflare.com` link.
 
 Use your own images with `--earth path.png --moon path.png`. Maps are assumed to be
 equirectangular, covering -180 to 180 longitude and -90 to 90 latitude. Override with

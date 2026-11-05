@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terrain Bot: Earth and Moon look-alikes</title>
+<style>
+  :root {
+    --bg: #0b0f17; --panel: #131a26; --line: #243043; --text: #e6edf6; --muted: #8b9ab0;
+    --accent: #5aa9ff; --hi: #ff6b6b; --ok: #3ddc97;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 18px 24px 8px; }
+  h1 { margin: 0; font-size: 20px; font-weight: 650; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 24px 14px; border-bottom: 1px solid var(--line); }
+  .toolbar label { color: var(--muted); font-size: 13px; }
+  select, input, button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #04111f; font-weight: 600; }
+  .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
+  main { display: grid; grid-template-columns: 1fr; gap: 16px; padding: 16px 24px 32px; }
+  @media (min-width: 1400px) { .maps { grid-template-columns: 1fr 1fr; } }
+  .maps { display: grid; gap: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  .panel h2 { margin: 0 0 8px; font-size: 15px; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .panel h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .mapwrap { position: relative; width: 100%; cursor: crosshair; user-select: none; border-radius: 6px; overflow: hidden; background: #000; }
+  .mapwrap img { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+  .marker { position: absolute; transform: translate(-50%, -50%); width: 20px; height: 20px; border-radius: 50%; border: 2px solid #fff;
+            background: var(--accent); color: #04111f; font-size: 11px; font-weight: 700; display: grid; place-items: center; pointer-events: auto; cursor: pointer; box-shadow: 0 0 0 2px rgba(0,0,0,.45); }
+  .marker.origin { background: var(--hi); color: #fff; width: 16px; height: 16px; }
+  .marker.lm { background: transparent; border: none; box-shadow: none; color: var(--hi); font-size: 16px; width: auto; height: auto; pointer-events: none; text-shadow: 0 0 3px #000; }
+  .marker.active { outline: 3px solid var(--ok); z-index: 5; }
+  .hover { color: var(--muted); font-size: 12px; min-height: 18px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .legend { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .legend .bar { flex: 1; height: 8px; border-radius: 4px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: center; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover, tbody tr.active { background: #1b2536; }
+  .sim { display: inline-block; min-width: 48px; padding: 1px 6px; border-radius: 6px; background: #12324a; color: #9fd0ff; }
+  .status { color: var(--muted); margin-bottom: 8px; }
+  .err { color: var(--hi); }
+  .calib { color: var(--muted); font-size: 12px; white-space: pre-wrap; margin: 0; }
+  .tablewrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Terrain Bot: Earth and Moon look-alike terrain</h1>
+  <p>Brightness is calibrated to real elevations: Earth from Challenger Deep (−10,935 m) to Everest (+8,849 m), Moon from Point Trieste (−9,129 m) to the Selenean summit (+10,786 m). Click anywhere on either map to find the most similar places on the other body.</p>
+</header>
+
+<div class="toolbar">
+  <label>Compare by
+    <select id="mode">
+      <option value="terrain">terrain (height, relief, slope)</option>
+      <option value="elevation">elevation only</option>
+    </select>
+  </label>
+  <label>Results <input id="k" type="number" min="1" max="25" value="8" style="width:64px"></label>
+  <button class="primary" id="topBtn">Show global top matches</button>
+  <span class="sep"></span>
+  <button data-lm="earth,highest">Everest</button>
+  <button data-lm="earth,lowest">Mariana Trench</button>
+  <button data-lm="moon,highest">Selenean summit</button>
+  <button data-lm="moon,lowest">Antoniadi crater</button>
+</div>
+
+<main>
+  <div class="maps">
+    <section class="panel">
+      <h2>Earth <small id="earthRange"></small></h2>
+      <div class="mapwrap" id="map-earth"><img alt="Earth calibrated elevation map" src="/map/earth.png"></div>
+      <div class="legend"><span id="earthMin"></span><span class="bar" style="background:linear-gradient(90deg,#000000,#1f4a7a,#2f8a7a,#5aa85a,#a8a855,#c8a87a,#fdfdfd)"></span><span id="earthMax"></span></div>
+      <div class="hover" id="hover-earth">Hover to read elevation. Click to search the Moon.</div>
+    </section>
+    <section class="panel">
+      <h2>Moon <small id="moonRange"></small></h2>
+      <div class="mapwrap" id="map-moon"><img alt="Moon calibrated elevation map" src="/map/moon.png"></div>
+      <div class="legend"><span id="moonMin"></span><span class="bar" style="background:linear-gradient(90deg,#00224e,#575d6d,#a59c74,#fee838)"></span><span id="moonMax"></span></div>
+      <div class="hover" id="hover-moon">Hover to read elevation. Click to search Earth.</div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Results <small>similarity = 100 × exp(−weighted distance)</small></h2>
+    <div class="status" id="status">Loading…</div>
+    <div class="tablewrap"><table id="results" hidden>
+      <thead><tr>
+        <th>#</th><th>similarity</th>
+        <th id="hA">from</th><th>elevation</th><th>relief 75 km</th>
+        <th id="hB">match</th><th>elevation</th><th>relief 75 km</th><th>difference</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Calibration check <small>map extremes compared with the real landmark positions</small></h2>
+    <pre class="calib" id="calib"></pre>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let INFO = null;
+
+const fmtM = (v) => (v == null ? "n/a" : `${Math.round(v).toLocaleString()} m`);
+const fmtLL = (lat, lon) => `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"} ${Math.abs(lon).toFixed(1)}°${lon >= 0 ? "E" : "W"}`;
+
+async function api(path) {
+  const r = await fetch(path);
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function toLatLon(body, ev) {
+  const b = INFO.bodies[body];
+  const rect = ev.currentTarget.getBoundingClientRect();
+  const fx = (ev.clientX - rect.left) / rect.width, fy = (ev.clientY - rect.top) / rect.height;
+  return {
+    lat: b.lat_range[1] - fy * (b.lat_range[1] - b.lat_range[0]),
+    lon: b.lon_range[0] + fx * (b.lon_range[1] - b.lon_range[0]),
+  };
+}
+
+function place(body, lat, lon, cls, text, title) {
+  const b = INFO.bodies[body];
+  const el = document.createElement("div");
+  el.className = `marker ${cls}`;
+  el.style.left = `${((lon - b.lon_range[0]) / (b.lon_range[1] - b.lon_range[0])) * 100}%`;
+  el.style.top = `${((b.lat_range[1] - lat) / (b.lat_range[1] - b.lat_range[0])) * 100}%`;
+  el.textContent = text;
+  if (title) el.title = title;
+  $(`#map-${body}`).appendChild(el);
+  return el;
+}
+
+function clearMarkers() {
+  document.querySelectorAll(".marker:not(.lm)").forEach((m) => m.remove());
+}
+
+function drawLandmarks() {
+  for (const [key, b] of Object.entries(INFO.bodies)) {
+    for (const lm of b.landmarks) place(key, lm.lat, lm.lon, "lm", lm.kind === "highest" ? "▲" : "▼", lm.name);
+  }
+}
+
+const bodyKey = (name) => name.toLowerCase();
+
+function showResults(matches, origin) {
+  clearMarkers();
+  const tbody = $("#results tbody");
+  tbody.innerHTML = "";
+  if (!matches.length) { $("#status").textContent = "No matches found."; $("#results").hidden = true; return; }
+  $("#hA").textContent = matches[0].a.body + " location";
+  $("#hB").textContent = matches[0].b.body + " location";
+  if (origin) place(bodyKey(origin.body), origin.lat, origin.lon, "origin", "", `${origin.body} ${fmtLL(origin.lat, origin.lon)}`);
+  const relief = (p) => p.features.relief_75km_m;
+
+  for (const m of matches) {
+    const markers = [];
+    if (!origin) markers.push(place(bodyKey(m.a.body), m.a.lat, m.a.lon, "", m.rank, `${m.a.body} #${m.rank}`));
+    markers.push(place(bodyKey(m.b.body), m.b.lat, m.b.lon, "", m.rank, `${m.b.body} #${m.rank}`));
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${m.rank}</td><td><span class="sim">${m.similarity.toFixed(1)}%</span></td>
+      <td>${fmtLL(m.a.lat, m.a.lon)}</td><td>${fmtM(m.a.features.elevation_m)}</td><td>${fmtM(relief(m.a))}</td>
+      <td>${fmtLL(m.b.lat, m.b.lon)}</td><td>${fmtM(m.b.features.elevation_m)}</td><td>${fmtM(relief(m.b))}</td>
+      <td>${m.elevation_difference_m >= 0 ? "+" : ""}${fmtM(m.elevation_difference_m)}</td>`;
+    const activate = () => {
+      document.querySelectorAll(".active").forEach((e) => e.classList.remove("active"));
+      tr.classList.add("active");
+      markers.forEach((mk) => mk.classList.add("active"));
+    };
+    tr.addEventListener("click", activate);
+    markers.forEach((mk) => mk.addEventListener("click", (e) => { e.stopPropagation(); activate(); tr.scrollIntoView({ block: "nearest" }); }));
+    tbody.appendChild(tr);
+  }
+  $("#results").hidden = false;
+}
+
+async function runQuery(body, lat, lon, label) {
+  const mode = $("#mode").value, k = $("#k").value;
+  $("#status").textContent = `Searching ${body === "earth" ? "the Moon" : "Earth"} for terrain like ${label || fmtLL(+lat, +lon)}…`;
+  try {
+    const res = await api(`/api/query?body=${body}&lat=${lat}&lon=${lon}&k=${k}&mode=${mode}`);
+    const o = res.origin, f = o.features;
+    $("#status").innerHTML = `Query: <b>${label ? label + ", " : ""}${o.body} ${fmtLL(o.lat, o.lon)}</b>, elevation ${fmtM(f.elevation_m)}, ` +
+      `75 km relief ${fmtM(f.relief_75km_m)}, slope ${f.slope_75km_deg.toFixed(2)}°. Most similar places on ${res.matches[0]?.b.body ?? "the other body"}:`;
+    showResults(res.matches, o);
+  } catch (e) { $("#status").innerHTML = `<span class="err">${e.message}</span>`; }
+}
+
+async function runTop() {
+  const mode = $("#mode").value, k = $("#k").value;
+  $("#status").textContent = "Finding the globally most similar Earth/Moon pairs…";
+  try {
+    const res = await api(`/api/top?n=${k}&mode=${mode}`);
+    $("#status").textContent = `Top ${res.matches.length} most similar Earth/Moon locations (${mode} mode). Click a row to highlight the pair.`;
+    showResults(res.matches, null);
+  } catch (e) { $("#status").innerHTML = `<span class="err">${e.message}</span>`; }
+}
+
+function wireMap(body) {
+  const wrap = $(`#map-${body}`);
+  let pending = null, last = 0;
+  wrap.addEventListener("mousemove", (ev) => {
+    const { lat, lon } = toLatLon(body, ev);
+    const now = Date.now();
+    clearTimeout(pending);
+    pending = setTimeout(async () => {
+      try {
+        const h = await api(`/api/height?body=${body}&lat=${lat}&lon=${lon}`);
+        $(`#hover-${body}`).textContent = `${fmtLL(lat, lon)}: ${h.elevation_m == null ? "no data" : fmtM(h.elevation_m)} (gray ${h.gray.toFixed(0)})`;
+      } catch { }
+    }, now - last > 120 ? 0 : 80);
+    last = now;
+  });
+  wrap.addEventListener("click", (ev) => {
+    const { lat, lon } = toLatLon(body, ev);
+    runQuery(body, lat.toFixed(3), lon.toFixed(3));
+  });
+}
+
+async function init() {
+  INFO = await api("/api/info");
+  for (const key of ["earth", "moon"]) {
+    const b = INFO.bodies[key];
+    $(`#${key}Min`).textContent = fmtM(b.min_elevation_m);
+    $(`#${key}Max`).textContent = fmtM(b.max_elevation_m);
+    $(`#${key}Range`).textContent = `${b.width}×${b.height} px, ${b.calibration.metres_per_gray_level.toFixed(1)} m per gray level`;
+    wireMap(key);
+  }
+  $("#mode").value = INFO.default_mode;
+  $("#calib").textContent = Object.values(INFO.bodies).map((b) => {
+    const c = b.calibration;
+    return ["highest", "lowest"].map((k) => {
+      const e = c[k];
+      return `${b.name} ${k}: ${e.landmark} (real ${fmtM(e.real_elevation_m)} at ${fmtLL(e.real_lat, e.real_lon)}). ` +
+        `Map's ${k === "highest" ? "lightest" : "darkest"} pixel is at ${fmtLL(e.map_pixel_lat, e.map_pixel_lon)}, ` +
+        `${Math.round(e.map_pixel_offset_km).toLocaleString()} km away. Map reads ${fmtM(e.map_elevation_at_real_location_m)} at the real spot.`;
+    }).join("\n");
+  }).join("\n\n");
+  drawLandmarks();
+  $("#topBtn").addEventListener("click", runTop);
+  $("#mode").addEventListener("change", runTop);
+  document.querySelectorAll("[data-lm]").forEach((btn) => btn.addEventListener("click", () => {
+    const [body, kind] = btn.dataset.lm.split(",");
+    const lm = INFO.bodies[body].landmarks.find((l) => l.kind === kind);
+    runQuery(body, lm.lat, lm.lon, lm.name);
+  }));
+  runTop();
+}
+
+init().catch((e) => { $("#status").innerHTML = `<span class="err">${e.message}</span>`; });
+</script>
+</body>
+</html>

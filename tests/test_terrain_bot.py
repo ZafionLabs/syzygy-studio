@@ -118,3 +118,32 @@ def test_bundled_maps_end_to_end(tmp_path):
     reply = handle_chat(matcher, "everest", k=2)
     assert "Mount Everest" in reply and "Moon location" in reply
     assert "outside the map" in handle_chat(matcher, "moon 100 0")
+
+
+def test_web_api_round_trip():
+    import json
+    import threading
+    from urllib.error import HTTPError
+    from urllib.request import urlopen
+
+    from terrain_bot.web import TerrainApp, make_handler
+    from http.server import ThreadingHTTPServer
+
+    hm_a = heightmap_from_array(_synthetic_terrain(seed=5), EARTH)
+    hm_b = heightmap_from_array(_synthetic_terrain(seed=6), MOON)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(TerrainApp(hm_a, hm_b, MatchConfig())))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        assert b"Terrain Bot" in urlopen(base + "/").read()
+        assert urlopen(base + "/map/moon.png").read().startswith(b"\x89PNG")
+        info = json.load(urlopen(base + "/api/info"))
+        assert info["bodies"]["earth"]["max_elevation_m"] == pytest.approx(8848.86)
+        res = json.load(urlopen(base + "/api/query?body=moon&lat=10&lon=20&k=3&mode=elevation"))
+        assert len(res["matches"]) == 3 and res["matches"][0]["b"]["body"] == "Earth"
+        assert len(json.load(urlopen(base + "/api/top?n=4"))["matches"]) == 4
+        with pytest.raises(HTTPError) as err:
+            urlopen(base + "/api/height?body=earth&lat=120&lon=0")
+        assert err.value.code == 400
+    finally:
+        server.shutdown()
