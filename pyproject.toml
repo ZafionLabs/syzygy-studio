@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "terrain-bot"
+version = "0.1.0"
+description = "Calibrate Earth/Moon grayscale heightmaps to real elevations and find look-alike terrain"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26", "scipy>=1.11", "pillow>=10.0", "matplotlib>=3.8"]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+terrain-bot = "terrain_bot.cli:main"
+
+[tool.setuptools]
+packages = ["terrain_bot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
