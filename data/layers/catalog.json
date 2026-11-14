@@ -188,12 +188,12 @@
       "weather": {
         "available": true,
         "title": "Global dust storm, Mars Year 34",
-        "source": "MCS dust map on the Viking mosaic, Ls 209\u00b0",
+        "source": "MCS dust map, Ls 209\u00b0",
         "low": "clearer air",
         "high": "dust storm",
-        "note": "The 2018 global dust storm, one day at solar longitude 209\u00b0. Pale ochre is thick dust and the ground shows through where the air is clearer. The dust field is a published 3\u00b0 map, so the storm is smooth while the surface underneath stays sharp.",
-        "citation": "Montabone, L., and others (2020), Martian year 34 column dust climatology from Mars Climate Sounder observations, Journal of Geophysical Research: Planets, doi:10.1029/2019JE006111. Kriged scenario version 2-5, column dust at 610 Pa. Base map: USGS Viking MDIM 2.1.",
-        "ramp": "dust"
+        "note": "The 2018 global dust storm, drawn as one smooth color field in the same way as the Moon map. Yellow is thick dust and purple is clearer air. This day is solar longitude 209\u00b0.",
+        "citation": "Montabone, L., and others (2020), Martian year 34 column dust climatology from Mars Climate Sounder observations, Journal of Geophysical Research: Planets, doi:10.1029/2019JE006111. Kriged scenario version 2-5, column dust at 610 Pa.",
+        "ramp": "heat"
       },
       "light": {
         "available": true,

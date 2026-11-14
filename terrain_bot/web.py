@@ -239,7 +239,7 @@ def make_handler(app: TerrainApp):
                     self._json(200, catalog())
                 elif path.startswith("/map/layer/") and path.endswith(".png"):
                     body, layer = path[len("/map/layer/"):-4].split("/")
-                    self._send(200, layer_png(body, layer), "image/png", cache=True)
+                    self._send(200, layer_png(body, layer), "image/png")
                 elif path.startswith("/map/") and path.endswith(".png"):
                     parts = path[len("/map/"):-4].split("/")
                     src, body = (parts if len(parts) == 2 else (app.default_source, parts[0]))

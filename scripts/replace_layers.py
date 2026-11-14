@@ -209,7 +209,7 @@ def earth_weather() -> Image.Image:
 
 
 def mars_weather() -> Image.Image:
-    """Viking mosaic with the MY34 global dust storm (Ls 209°) painted from the kriged MCS map."""
+    """Same smooth color field as the Moon weather map, for the MY34 dust storm at Ls 209°."""
     import netCDF4
 
     path = fetch(
@@ -221,14 +221,10 @@ def mars_weather() -> Image.Image:
     instant = int(np.argmin(np.abs(solar_longitude - 208.7)))
     dust = np.asarray(dataset.variables["cdod610"][instant], dtype=np.float32)
     dataset.close()
-    field = np.array(Image.fromarray(dust, "F").resize((GEO_W, GEO_H), Image.Resampling.BILINEAR))
-    amount = np.clip((field - 0.30) / 2.0, 0.0, 1.0)
-    pale = np.array([255, 236, 190], np.float32)
-    ochre = np.array([150, 78, 28], np.float32)
-    color = (ochre * (1.0 - amount)[..., None] + pale * amount[..., None]).astype(np.uint8)
-    alpha = np.clip((field - 0.30) / 2.2, 0.0, 0.78)
-    ground = usgs_hq("/maps/mars/mars_simp_cyl.map", "MDIM21_color", "mars_light_hq.jpg")
-    return paint(ground, color, alpha)
+    # The published grid is 3°. Draw it as one continuous field, the way the Moon map is drawn.
+    field = np.array(Image.fromarray(dust, "F").resize((GEO_W, GEO_H), Image.Resampling.BICUBIC))
+    valid = np.isfinite(field)
+    return colorize(field, valid, *limits(field, valid))
 
 
 def moon_weather() -> Image.Image:
@@ -534,12 +530,12 @@ def catalog() -> dict:
                 ),
                 "weather": entry(
                     "Global dust storm, Mars Year 34",
-                    "MCS dust map on the Viking mosaic, Ls 209°",
+                    "MCS dust map, Ls 209°",
                     "clearer air",
                     "dust storm",
-                    "The 2018 global dust storm, one day at solar longitude 209°. Pale ochre is thick dust and the ground shows through where the air is clearer. The dust field is a published 3° map, so the storm is smooth while the surface underneath stays sharp.",
-                    "Montabone, L., and others (2020), Martian year 34 column dust climatology from Mars Climate Sounder observations, Journal of Geophysical Research: Planets, doi:10.1029/2019JE006111. Kriged scenario version 2-5, column dust at 610 Pa. Base map: USGS Viking MDIM 2.1.",
-                    "dust",
+                    "The 2018 global dust storm, drawn as one smooth color field in the same way as the Moon map. Yellow is thick dust and purple is clearer air. This day is solar longitude 209°.",
+                    "Montabone, L., and others (2020), Martian year 34 column dust climatology from Mars Climate Sounder observations, Journal of Geophysical Research: Planets, doi:10.1029/2019JE006111. Kriged scenario version 2-5, column dust at 610 Pa.",
+                    "heat",
                 ),
                 "light": entry(
                     "Viking color mosaic",

@@ -363,7 +363,7 @@ function renderPair() {
     const unavailable = $<HTMLElement>(`#map-${slot} .unavailable`);
     unavailable.hidden = !missing;
     unavailable.textContent = thematic?.note || "";
-    if (!missing) img.src = layerId === "elevation" ? `/map/${src}/${key}.png` : `/map/layer/${key}/${layerId}.png`;
+    if (!missing) img.src = layerId === "elevation" ? `/map/${src}/${key}.png?v=4` : `/map/layer/${key}/${layerId}.png?v=4`;
     $(`#title${slot}`).textContent = b.name;
     $(`#min${slot}`).textContent = missing ? "" : thematic?.available ? (thematic.low || "") : fmtM(b.color_min_m);
     $(`#max${slot}`).textContent = missing ? "" : thematic?.available ? (thematic.high || "") : fmtM(b.color_max_m);
