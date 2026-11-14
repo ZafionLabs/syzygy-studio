@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terrain Bot: Earth, Moon and Mars look-alikes</title>
+<link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+<header>
+  <h1>Terrain Bot: Earth, Moon and Mars look-alike terrain</h1>
+  <p>Find closest match by clicking the Moon or Mars. Compare two bodies by clicking either map. Earth's underwater sea floor counts too.
+     By default it uses real measured elevations: NOAA ETOPO1 for Earth (including the ocean floor), NASA LRO LOLA for the Moon, and NASA MGS MOLA for Mars.
+     You can switch to your images, scaled from each body's real lowest point to its highest: Challenger Deep (−10,935 m) to Everest (+8,849 m) on Earth, Point Trieste (−9,129 m) to the Selenean summit (+10,786 m) on the Moon, and Badwater crater in Hellas (−8,201 m) to Olympus Mons (+21,229 m) on Mars.
+     Or use the images with a brightness curve fitted to the real data.</p>
+</header>
+
+<div class="toolbar">
+  <div class="toggle" id="searchMode" role="group" aria-label="Search">
+    <button type="button" data-mode="on-earth" class="on" aria-pressed="true">Find closest match</button>
+    <button type="button" data-mode="pair" aria-pressed="false">Compare two bodies</button>
+  </div>
+  <label id="pairBodies">Compare <select id="bodyA"></select> with <select id="bodyB"></select></label>
+  <label id="earthFromLabel">Top matches from
+    <select id="earthFrom"></select>
+  </label>
+  <label>Data <select id="source"></select></label>
+  <label>Compare by
+    <select id="mode">
+      <option value="terrain">terrain (height, roughness, slope)</option>
+      <option value="elevation">elevation only</option>
+    </select>
+  </label>
+  <label>Earth points
+    <select id="surface">
+      <option value="any">land or underwater</option>
+      <option value="land">land only</option>
+      <option value="underwater">underwater only</option>
+    </select>
+  </label>
+  <label>Results <input id="k" type="number" min="1" max="25" value="8" style="width:64px"></label>
+  <button class="primary" id="topBtn">Show global top matches</button>
+  <span class="sep"></span>
+  <span id="lmButtons" style="display:contents"></span>
+</div>
+
+<main>
+  <div class="maps" id="maps">
+    <section class="panel" id="slotA">
+      <h2><span id="titleA"></span> <small id="rangeA"></small></h2>
+      <div class="mapwrap" id="map-A"><img alt="elevation map"></div>
+      <div class="legend"><span id="minA"></span><span class="bar" id="barA"></span><span id="maxA"></span></div>
+      <div class="hover" id="hover-A"></div>
+    </section>
+    <section class="panel" id="slotB">
+      <h2><span id="titleB"></span> <small id="rangeB"></small></h2>
+      <div class="mapwrap" id="map-B"><img alt="elevation map"></div>
+      <div class="legend"><span id="minB"></span><span class="bar" id="barB"></span><span id="maxB"></span></div>
+      <div class="hover" id="hover-B"></div>
+    </section>
+    <section class="panel" id="slotC">
+      <h2><span id="titleC"></span> <small id="rangeC"></small></h2>
+      <div class="mapwrap" id="map-C"><img alt="elevation map"></div>
+      <div class="legend"><span id="minC"></span><span class="bar" id="barC"></span><span id="maxC"></span></div>
+      <div class="hover" id="hover-C"></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Results <small>similarity = 100 × exp(−distance); click a row to see why it matched</small></h2>
+    <div class="status" id="status">Loading…</div>
+    <div class="tablewrap"><table id="results" hidden>
+      <thead><tr>
+        <th>#</th><th>similarity</th>
+        <th id="hA">from</th><th>elevation</th><th>roughness 75 km</th>
+        <th id="hB">match</th><th>elevation</th><th>roughness 75 km</th><th>difference</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <h2 style="margin-top:14px">Saved searches <small>kept in the database</small></h2>
+    <div id="searches" class="searches"></div>
+  </section>
+
+  <div class="lower">
+    <section class="panel">
+      <h2>How this was found <small>step by step, with the real numbers</small></h2>
+      <ol class="steps" id="steps"></ol>
+      <div id="breakdownWrap" hidden>
+        <h2 style="margin-top:12px">Why match <span id="bdRank"></span> scored <span id="bdSim"></span></h2>
+        <div class="tablewrap"><table id="breakdown">
+          <thead><tr><th>feature</th><th id="bdA">from</th><th id="bdB">match</th><th>difference</th><th>in std-devs</th><th>weight</th><th>adds to distance²</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <p class="note mono" id="bdTotal"></p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>How accurate is it? <small>images checked against real data</small></h2>
+      <div id="validation"></div>
+      <h2 style="margin-top:8px">Data sources and landmarks</h2>
+      <div id="calib" class="note" style="white-space:pre-wrap"></div>
+    </section>
+  </div>
+</main>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

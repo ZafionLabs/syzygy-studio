@@ -62,9 +62,12 @@ dry land or sea floor.
 
 ```bash
 pip install -r requirements.txt
+npm install
 
-python -m terrain_bot serve                    # browser UI at http://localhost:8000
+python -m terrain_bot serve --port 8010        # Python terrain API
+npm start                                      # TypeScript UI at http://localhost:8000
                                                  # default: click the Moon or Mars, matches land on Earth
+                                                 # every search is stored in the database
 python -m terrain_bot query --body moon --lat -70.36 --lon -172.49 --surface underwater
 python -m terrain_bot query --body mars --lat 18.65 --lon -133.8 --target moon
 python -m terrain_bot analyze --bodies earth mars --top 20   # results/: CSV, JSON, summary, map, histogram
