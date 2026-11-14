@@ -279,3 +279,20 @@ def test_web_api_round_trip():
         assert err.value.code == 400
     finally:
         server.shutdown()
+
+
+def test_place_names_cover_earth_ocean_moon_and_mars():
+    import json
+    names = json.loads((Path(__file__).resolve().parents[1] / "frontend" / "public" / "names.json").read_text())
+    assert len(names["earth"]) > 5000
+    assert len(names["ocean"]) > 4000
+    assert len(names["moon"]) > 8000
+    assert len(names["mars"]) > 1500
+    found = {body: {row[0] for row in names[body]} for body in ("earth", "ocean", "moon", "mars")}
+    assert "Tokyo" in found["earth"] and "Mount Everest" in found["earth"]
+    assert "Mariana" in found["ocean"]
+    assert "Tycho" in found["moon"] and "Mare Imbrium" in found["moon"]
+    assert "Olympus Mons" in found["mars"] and "Hellas Planitia" in found["mars"]
+    assert "Natural Earth" in names["citation"]["earth"]
+    assert "GEBCO" in names["citation"]["ocean"]
+    assert "International Astronomical Union" in names["citation"]["moon"]

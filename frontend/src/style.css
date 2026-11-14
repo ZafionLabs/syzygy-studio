@@ -32,7 +32,10 @@
   .panel h2 { margin: 0 0 8px; font-size: 15px; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
   .panel h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
   .mapwrap { position: relative; width: 100%; min-height: 220px; cursor: crosshair; user-select: none; border-radius: 6px; overflow: hidden; background: #000; }
-  .mapwrap canvas { display: block; width: 100%; height: auto; }
+  .mapview { width: 100%; transform-origin: 0 0; }
+  .mapview canvas.blend { display: block; width: 100%; height: auto; }
+  .mapwrap canvas.labels { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .mapreset { position: absolute; top: 8px; right: 8px; z-index: 6; padding: 3px 8px; font-size: 12px; background: rgba(8,12,20,.8); }
   .mix { display: flex; flex-wrap: wrap; gap: 8px; }
   .mix-item { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px 2px 2px; }
   .mix-item button { border: none; background: transparent; color: var(--muted); }

@@ -80,6 +80,15 @@ type LayerCatalog = {
   bodies: Record<string, Record<string, LayerInfo>>;
 };
 
+type Place = { n: string; lat: number; lon: number; z: number; k: string };
+type Gazetteer = {
+  citation: Record<string, string>;
+  earth: Place[];
+  ocean: Place[];
+  moon: Place[];
+  mars: Place[];
+};
+
 type SearchRow = {
   id: number;
   created_at: string;
@@ -131,6 +140,9 @@ const bodies = () => {
 let searchMode = "on-earth";
 let LAYERS: LayerCatalog | null = null;
 const shares: Record<string, number> = { elevation: 100 };
+let PLACES: Gazetteer | null = null;
+let showNames = true;
+const views: Record<string, { zoom: number; panX: number; panY: number }> = {};
 const mapImages = new Map<string, Promise<HTMLImageElement>>();
 const paintGen: Record<string, number> = {};
 let paintQueued = false;
@@ -164,6 +176,105 @@ function usableLayers(key: string) {
 
 function mapUrl(key: string, id: string) {
   return id === "elevation" ? `/map/${source()}/${key}.png?v=4` : `/map/layer/${key}/${id}.png?v=4`;
+}
+
+function viewOf(slot: string) {
+  return views[slot] || (views[slot] = { zoom: 1, panX: 0, panY: 0 });
+}
+
+function clampPan(pan: number, size: number, zoom: number) {
+  return Math.min(0, Math.max(size * (1 - zoom), pan));
+}
+
+function applyView(slot: string) {
+  const view = viewOf(slot);
+  $(`#map-${slot} .mapview`).style.transform = `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`;
+  $<HTMLButtonElement>(`#map-${slot} .mapreset`).hidden = view.zoom === 1 && view.panX === 0 && view.panY === 0;
+  document.querySelectorAll<HTMLElement>(`#map-${slot} .marker`).forEach((marker) => {
+    marker.style.transform = `translate(-50%, -50%) scale(${1 / view.zoom})`;
+  });
+}
+
+function placeLabel(place: Place) {
+  const plain = place.k === "city" || place.k === "country" || place.k === "land" || place.k === "crater" || place.k === "satellite feature";
+  if (plain || place.n.includes(" ")) return place.n;
+  const kind = place.k.replace(/s$/, "");
+  if (place.n.toLowerCase().includes(kind)) return place.n;
+  return `${place.n} ${kind.charAt(0).toUpperCase()}${kind.slice(1)}`;
+}
+
+function nearestPlace(key: string, lat: number, lon: number, underwater: boolean) {
+  const groups = key === "earth"
+    ? (underwater ? [PLACES?.ocean || [], PLACES?.earth || []] : [PLACES?.earth || [], PLACES?.ocean || []])
+    : [PLACES?.[key as "moon" | "mars"] || []];
+  const scale = Math.cos((lat * Math.PI) / 180);
+  const score = (place: Place) => {
+    let dlon = Math.abs(place.lon - lon);
+    if (dlon > 180) dlon = 360 - dlon;
+    return (place.lat - lat) ** 2 + (dlon * scale) ** 2;
+  };
+  let best: Place | null = null;
+  let bestScore = Infinity;
+  for (const group of groups) {
+    for (const place of group) {
+      const next = score(place);
+      if (next < bestScore) {
+        best = place;
+        bestScore = next;
+      }
+    }
+    if (best && (!underwater || key !== "earth" || bestScore <= 64)) break;
+  }
+  return best;
+}
+
+function drawLabels(slot: string) {
+  const canvas = $<HTMLCanvasElement>(`#map-${slot} canvas.labels`);
+  const wrap = $(`#map-${slot}`);
+  const width = wrap.clientWidth;
+  const height = wrap.clientHeight;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.max(1, Math.round(width * dpr));
+  canvas.height = Math.max(1, Math.round(height * dpr));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  const key = slots()[slot];
+  if (!showNames || !PLACES || !key || width < 2) return;
+  const body = bodies()[key];
+  const view = viewOf(slot);
+  const list = (key === "earth" ? PLACES.earth.concat(PLACES.ocean) : PLACES[key as "moon" | "mars"] || [])
+    .filter((place) => place.z <= view.zoom + 0.05)
+    .sort((a, b) => a.z - b.z || a.n.length - b.n.length);
+  const placed: { x: number; y: number; w: number; h: number }[] = [];
+  ctx.font = "600 12px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 3;
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "rgba(0,0,0,.82)";
+  ctx.fillStyle = "#fff";
+  for (const place of list) {
+    const fx = (place.lon - body.lon_range[0]) / (body.lon_range[1] - body.lon_range[0]);
+    const fy = (body.lat_range[1] - place.lat) / (body.lat_range[1] - body.lat_range[0]);
+    const x = fx * width * view.zoom + view.panX;
+    const y = fy * height * view.zoom + view.panY;
+    if (x < 4 || y < 8 || x > width - 4 || y > height - 8) continue;
+    const text = placeLabel(place);
+    const boxW = ctx.measureText(text).width + 10;
+    const box = { x: x - boxW / 2, y: y - 9, w: boxW, h: 18 };
+    if (box.x < 2 || box.y < 2 || box.x + box.w > width - 2 || box.y + box.h > height - 2) continue;
+    if (placed.some((other) => box.x < other.x + other.w && other.x < box.x + box.w && box.y < other.y + other.h && other.y < box.y + box.h)) continue;
+    placed.push(box);
+    ctx.strokeText(text, x, y);
+    ctx.fillText(text, x, y);
+    if (placed.length >= 280) break;
+  }
+}
+
+function drawAllLabels() {
+  for (const slot of Object.keys(slots())) drawLabels(slot);
 }
 
 function loadMap(url: string) {
@@ -206,8 +317,11 @@ async function api<T>(path: string): Promise<T> {
 
 function toLatLon(body: string, ev: MouseEvent) {
   const b = bodies()[body];
+  const slot = slotOf(body);
+  const view = slot ? viewOf(slot) : { zoom: 1, panX: 0, panY: 0 };
   const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
-  const fx = (ev.clientX - rect.left) / rect.width, fy = (ev.clientY - rect.top) / rect.height;
+  const fx = Math.min(1, Math.max(0, (ev.clientX - rect.left - view.panX) / (rect.width * view.zoom)));
+  const fy = Math.min(1, Math.max(0, (ev.clientY - rect.top - view.panY) / (rect.height * view.zoom)));
   return {
     lat: b.lat_range[1] - fy * (b.lat_range[1] - b.lat_range[0]),
     lon: b.lon_range[0] + fx * (b.lon_range[1] - b.lon_range[0]),
@@ -224,7 +338,8 @@ function place(body: string, lat: number, lon: number, cls: string, text: string
   el.style.top = `${((b.lat_range[1] - lat) / (b.lat_range[1] - b.lat_range[0])) * 100}%`;
   el.textContent = text;
   if (title) el.title = title;
-  $(`#map-${slot}`).appendChild(el);
+  el.style.transform = `translate(-50%, -50%) scale(${1 / viewOf(slot).zoom})`;
+  $(`#map-${slot} .mapview`).appendChild(el);
   return el;
 }
 
@@ -317,7 +432,8 @@ async function runQuery(body: string, lat: number | string, lon: number | string
   try {
     const res = await api<QueryResult>(`/api/query?body=${body}&target=${target}&lat=${lat}&lon=${lon}&k=${k}&${params()}`);
     const o = res.origin, f = o.features;
-    $("#status").innerHTML = `Query: <b>${label ? esc(label) + ", " : ""}${o.body} ${fmtLL(o.lat, o.lon)}</b> is ${esc(o.surface)}; ` +
+    const called = nearestPlace(bodyKey(o.body), o.lat, o.lon, o.underwater);
+    $("#status").innerHTML = `Query: <b>${called ? esc(placeLabel(called)) + ", " : ""}${label ? esc(label) + ", " : ""}${o.body} ${fmtLL(o.lat, o.lon)}</b> is ${esc(o.surface)}; ` +
       `75 km roughness ${fmtM(f.relief_75km_m)}, slope ${f.slope_75km_deg.toFixed(2)}°. Most similar places on ${bodies()[target].name}:`;
     showResults(res.matches, o);
     showSteps(res.steps);
@@ -349,19 +465,70 @@ const rerun = () => (lastQuery && slotOf(lastQuery.body) ? runQuery(lastQuery.bo
 function wireMap(slot: string) {
   const wrap = $(`#map-${slot}`);
   let pending: ReturnType<typeof setTimeout> | undefined;
+  let drag: { x: number; y: number; panX: number; panY: number; moved: boolean; pointer: number } | null = null;
   wrap.addEventListener("mousemove", (ev) => {
     const body = slots()[slot];
-    if (!body) return;
+    if (!body || drag?.moved) return;
     const { lat, lon } = toLatLon(body, ev);
     clearTimeout(pending);
     pending = setTimeout(async () => {
       try {
-        const h = await api<{ surface: string }>(`/api/height?body=${body}&lat=${lat}&lon=${lon}&source=${source()}`);
-        $(`#hover-${slot}`).textContent = `${fmtLL(lat, lon)}: ${h.surface}`;
+        const h = await api<{ surface: string; elevation_m: number }>(`/api/height?body=${body}&lat=${lat}&lon=${lon}&source=${source()}`);
+        const named = nearestPlace(body, lat, lon, body === "earth" && h.elevation_m < 0);
+        const called = named ? ` · ${placeLabel(named)}` : "";
+        $(`#hover-${slot}`).textContent = `${fmtLL(lat, lon)}: ${h.surface}${called}`;
       } catch { /* hover is best-effort */ }
     }, 60);
   });
+  wrap.addEventListener("pointerdown", (ev) => {
+    if ((ev.target as HTMLElement).closest("button")) return;
+    const view = viewOf(slot);
+    drag = { x: ev.clientX, y: ev.clientY, panX: view.panX, panY: view.panY, moved: false, pointer: ev.pointerId };
+    wrap.setPointerCapture(ev.pointerId);
+  });
+  wrap.addEventListener("pointermove", (ev) => {
+    if (!drag || drag.pointer !== ev.pointerId) return;
+    const dx = ev.clientX - drag.x;
+    const dy = ev.clientY - drag.y;
+    if (Math.hypot(dx, dy) > 4) drag.moved = true;
+    if (!drag.moved) return;
+    const view = viewOf(slot);
+    const rect = wrap.getBoundingClientRect();
+    view.panX = clampPan(drag.panX + dx, rect.width, view.zoom);
+    view.panY = clampPan(drag.panY + dy, rect.height, view.zoom);
+    applyView(slot);
+    drawLabels(slot);
+  });
+  wrap.addEventListener("pointerup", (ev) => {
+    if (!drag || drag.pointer !== ev.pointerId) return;
+    if (drag.moved) wrap.dataset.dragged = "1";
+    drag = null;
+  });
+  wrap.addEventListener("wheel", (ev) => {
+    ev.preventDefault();
+    const view = viewOf(slot);
+    const rect = wrap.getBoundingClientRect();
+    const mx = ev.clientX - rect.left;
+    const my = ev.clientY - rect.top;
+    const next = Math.min(28, Math.max(1, view.zoom * (ev.deltaY < 0 ? 1.18 : 1 / 1.18)));
+    const scale = next / view.zoom;
+    view.panX = clampPan(mx - (mx - view.panX) * scale, rect.width, next);
+    view.panY = clampPan(my - (my - view.panY) * scale, rect.height, next);
+    view.zoom = next;
+    applyView(slot);
+    drawLabels(slot);
+  }, { passive: false });
+  $<HTMLButtonElement>(`#map-${slot} .mapreset`).addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    views[slot] = { zoom: 1, panX: 0, panY: 0 };
+    applyView(slot);
+    drawLabels(slot);
+  });
   wrap.addEventListener("click", (ev) => {
+    if (wrap.dataset.dragged === "1") {
+      wrap.dataset.dragged = "";
+      return;
+    }
     const body = slots()[slot];
     if (!body || (earthMode() && body === "earth")) return;
     const { lat, lon } = toLatLon(body, ev);
@@ -425,6 +592,8 @@ function renderPair() {
     }
   }
   writeMixText();
+  for (const slot of Object.keys(slots())) applyView(slot);
+  drawAllLabels();
 }
 
 function writeMixText() {
@@ -449,7 +618,14 @@ function writeMixText() {
   const mixLine = activeIds().map((id) => `${layerLabel(id)} ${percents[id]}%`).join(", ");
   const mapHeading = `<p><b>This mix.</b> ${esc(mixLine)}. A click still searches the elevation data below.</p>${shown}`;
   $("#calib").innerHTML = mapHeading + elevationNotes;
-  $("#layerNote").textContent = `${mixLine}. A click still searches elevation.`;
+  const nameLine = showNames && PLACES
+    ? ` Names: ${PLACES.earth.length.toLocaleString()} on land, ${PLACES.ocean.length.toLocaleString()} underwater, ${PLACES.moon.length.toLocaleString()} on the Moon, ${PLACES.mars.length.toLocaleString()} on Mars. Scroll to zoom.`
+    : "";
+  $("#layerNote").textContent = `${mixLine}. A click still searches elevation.${nameLine}`;
+  const cited = PLACES && showNames
+    ? `<p><b>Names.</b> ${esc(PLACES.citation.earth)} ${esc(PLACES.citation.ocean)} ${esc(PLACES.citation.moon)}</p>`
+    : "";
+  $("#calib").insertAdjacentHTML("beforeend", cited);
   for (const [slot, key] of Object.entries(slots())) {
     $(`#legend${slot}`).innerHTML = legendHtml(key);
     const info = bodies()[key];
@@ -490,7 +666,7 @@ function schedulePaint() {
 
 async function paintBlend(slot: string, key: string) {
   const gen = (paintGen[slot] = (paintGen[slot] || 0) + 1);
-  const canvas = $<HTMLCanvasElement>(`#map-${slot} canvas`);
+  const canvas = $<HTMLCanvasElement>(`#map-${slot} canvas.blend`);
   const ids = usableLayers(key);
   if (!ids.length) {
     canvas.hidden = true;
@@ -683,7 +859,27 @@ async function init() {
     pick.appendChild(row);
   }
   syncMixer();
-  new ResizeObserver(() => schedulePaint()).observe($("#maps"));
+  new ResizeObserver(() => { schedulePaint(); drawAllLabels(); }).observe($("#maps"));
+  $("#namesBtn").addEventListener("click", () => {
+    showNames = !showNames;
+    const button = $<HTMLButtonElement>("#namesBtn");
+    button.classList.toggle("on", showNames);
+    button.setAttribute("aria-pressed", showNames ? "true" : "false");
+    writeMixText();
+    drawAllLabels();
+  });
+  void fetch("/names.json").then((response) => response.json()).then((raw: { citation: Record<string, string>; earth: [string, number, number, number, string][]; ocean: [string, number, number, number, string][]; moon: [string, number, number, number, string][]; mars: [string, number, number, number, string][] }) => {
+    const parse = (rows: [string, number, number, number, string][]) => rows.map(([n, lat, lon, z, k]) => ({ n, lat, lon, z, k }));
+    PLACES = {
+      citation: raw.citation,
+      earth: parse(raw.earth),
+      ocean: parse(raw.ocean),
+      moon: parse(raw.moon),
+      mars: parse(raw.mars),
+    };
+    writeMixText();
+    drawAllLabels();
+  }).catch(() => { /* names stay off if the file is missing */ });
   const sel = $<HTMLSelectElement>("#source");
   for (const [key, s] of Object.entries(INFO.sources)) sel.add(new Option(s.label, key));
   sel.value = INFO.default_source;
