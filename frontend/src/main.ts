@@ -398,10 +398,26 @@ function placeFor(body: string, lat: number, lon: number) {
   return pending;
 }
 
+function featurePercent(row: Breakdown) {
+  return 100 * Math.exp(-Math.sqrt(Math.max(0, row.contribution)));
+}
+
+function shortFeature(label: string) {
+  return label
+    .replace("Elevation at the point", "Elevation")
+    .replace("Average elevation within ", "Average, ")
+    .replace("Roughness (std-dev of elevation) within ", "Roughness, ")
+    .replace("Regional slope over ", "Slope, ");
+}
+
 function showTwin(m: Match | null) {
   const panel = $<HTMLElement>("#twinPanel");
+  const ranks = $<HTMLElement>("#twinRanks");
+  const parts = $<HTMLElement>("#twinParts");
   if (!m) {
     panel.hidden = true;
+    ranks.innerHTML = "";
+    parts.innerHTML = "";
     return;
   }
   const token = ++twinToken;
@@ -411,6 +427,20 @@ function showTwin(m: Match | null) {
   $("#twinSub").textContent = `match #${m.rank}`;
   $("#twinSim").textContent = `${m.similarity.toFixed(1)}%`;
   $("#twinDiff").textContent = `height difference ${m.elevation_difference_m >= 0 ? "+" : ""}${fmtM(m.elevation_difference_m)}`;
+  parts.innerHTML = m.breakdown.map((row) =>
+    `<div class="part"><span>${esc(shortFeature(row.label))}</span><b>${featurePercent(row).toFixed(1)}%</b></div>`).join("");
+  ranks.innerHTML = "";
+  for (const match of shownMatches.matches) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.classList.toggle("on", match.rank === m.rank);
+    button.textContent = `#${match.rank} ${match.similarity.toFixed(1)}%`;
+    button.addEventListener("click", () => {
+      const row = $<HTMLTableSectionElement>("#results tbody").children[match.rank - 1];
+      row?.dispatchEvent(new Event("click"));
+    });
+    ranks.appendChild(button);
+  }
   const loading = (p: Site) => `<h3>Looking up this place…</h3><div class="sub">${esc(p.body)} · ${fmtLL(p.lat, p.lon)}</div>`;
   const left = $<HTMLElement>("#twinA");
   const right = $<HTMLElement>("#twinB");
@@ -548,7 +578,7 @@ function showBreakdown(m: Match) {
   $<HTMLTableSectionElement>("#breakdown tbody").innerHTML = m.breakdown.map((r) => `<tr>
       <td>${esc(r.label)}</td><td>${fmtNum(r.a, dp(r))} ${r.unit}</td><td>${fmtNum(r.b, dp(r))} ${r.unit}</td>
       <td>${r.difference >= 0 ? "+" : ""}${fmtNum(r.difference, dp(r))} ${r.unit}</td><td>${r.z_difference >= 0 ? "+" : ""}${r.z_difference.toFixed(3)}</td>
-      <td>${(r.weight_share * 100).toFixed(1)}%</td><td>${r.contribution.toFixed(5)}</td></tr>`).join("");
+      <td>${featurePercent(r).toFixed(1)}%</td><td>${(r.weight_share * 100).toFixed(1)}%</td><td>${r.contribution.toFixed(5)}</td></tr>`).join("");
   const total = m.breakdown.reduce((s, r) => s + r.contribution, 0);
   $("#bdTotal").textContent = `distance = √${total.toFixed(5)} = ${Math.sqrt(total).toFixed(4)}  →  similarity = 100 × exp(−${m.distance.toFixed(4)}) = ${m.similarity.toFixed(1)}%. ` +
     `${m.a.body}: ${m.a.surface}. ${m.b.body}: ${m.b.surface}.`;

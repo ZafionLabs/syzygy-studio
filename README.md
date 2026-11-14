@@ -60,7 +60,7 @@ dry land or sea floor.
 
 ## Other maps
 
-In Find closest match, a Moon / Mars toggle shows one of those maps at a time, with Earth beside it. The web app can turn on elevation, temperature, ice and water, geology, weather, light, and radiation together. Each selected map is drawn on its own, one under the other. Hover a selected point or a found match to see its name, coordinates, a picture of the spot, the nearest landmark and its distance, and the distance from the center of the nearest crater. Coordinates can be typed instead of clicking a map. Under the maps, the match uses the earlier place cards: both places, their pictures, and the match percentage. A click still searches by elevation. The images are in `data/layers/` and are built by `python3 scripts/build_layers.py`.
+In Find closest match, a Moon / Mars toggle shows one of those maps at a time, with Earth beside it. The web app can turn on elevation, temperature, ice and water, geology, weather, light, and radiation together. Each selected map is drawn on its own, one under the other. Hover a selected point or a found match to see its name, coordinates, a picture of the spot, the nearest landmark and its distance, and the distance from the center of the nearest crater. Coordinates can be typed instead of clicking a map. Under the maps, the match uses the earlier place cards: both places, their pictures, the overall match percentage, a percentage for every result, and a percentage for each measurement. A click still searches by elevation. The images are in `data/layers/` and are built by `python3 scripts/build_layers.py`.
 
 | Map | Earth | Moon | Mars |
 |---|---|---|---|
