@@ -13,7 +13,7 @@
      By default it uses real measured elevations: NOAA ETOPO1 for Earth (including the ocean floor), NASA LRO LOLA for the Moon, and NASA MGS MOLA for Mars.
      You can switch to your images, scaled from each body's real lowest point to its highest: Challenger Deep (−10,935 m) to Everest (+8,849 m) on Earth, Point Trieste (−9,129 m) to the Selenean summit (+10,786 m) on the Moon, and Badwater crater in Hellas (−8,201 m) to Olympus Mons (+21,229 m) on Mars.
      Or use the images with a brightness curve fitted to the real data.
-     The map buttons add temperature, ice and water, geology, weather, light, and radiation. Turn on more than one at a time. Each selected map is drawn on its own, one under the other. Hover a selected point or a found match to see its name, a picture of the spot, the nearest landmark and how far away it is, and how far the point is from the center of the nearest crater. The match is shown under the maps, with the old place cards: the name, the description, and pictures of both places, plus the match percentage. A click still searches by elevation.</p>
+     The map buttons add temperature, ice and water, geology, weather, light, and radiation. Turn on more than one at a time. Each selected map is drawn on its own, one under the other. Hover a selected point or a found match to see its name, its coordinates, a picture of the spot, the nearest landmark and how far away it is, and how far the point is from the center of the nearest crater. You can type coordinates instead of clicking a map. The match is shown under the maps, with the old place cards: the name, the description, and pictures of both places, plus the match percentage. A click still searches by elevation.</p>
 </header>
 
 <div class="toolbar">
@@ -40,6 +40,11 @@
     </select>
   </label>
   <label>Results <input id="k" type="number" min="1" max="25" value="8" style="width:64px"></label>
+  <label>Coordinates
+    <select id="coordBody" aria-label="Body"></select>
+    <input id="coordText" type="text" placeholder="18.1 N, 18.4 W" style="width:160px" aria-label="Latitude and longitude">
+    <button type="button" id="coordGo">Find</button>
+  </label>
   <button class="primary" id="topBtn">Show global top matches</button>
   <span class="sep"></span>
   <span id="lmButtons" style="display:contents"></span>
@@ -114,7 +119,7 @@
     </section>
   </div>
 </main>
-<div id="placecard" hidden><img id="spotImg" alt=""><h3 id="spotName"></h3><p id="spotLandmark" class="sub"></p><p id="spotCrater" class="sub"></p></div>
+<div id="placecard" hidden><img id="spotImg" alt=""><h3 id="spotName"></h3><p id="spotCoords" class="sub"></p><p id="spotLandmark" class="sub"></p><p id="spotCrater" class="sub"></p></div>
 <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

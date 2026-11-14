@@ -131,6 +131,7 @@ const LANDMARK_LABELS: Record<string, string> = {
 const fmtM = (v: number | null | undefined) => (v == null ? "n/a" : `${Math.round(v).toLocaleString()} m`);
 const fmtNum = (v: number | null | undefined, d = 1) => (v == null ? "n/a" : v.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }));
 const fmtLL = (lat: number, lon: number) => `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"} ${Math.abs(lon).toFixed(1)}°${lon >= 0 ? "E" : "W"}`;
+const fmtCoords = (lat: number, lon: number) => `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? "N" : "S"}, ${Math.abs(lon).toFixed(3)}°${lon >= 0 ? "E" : "W"}`;
 const esc = (s: string) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] ?? c);
 const source = () => val("#source");
 const bodies = () => {
@@ -273,8 +274,51 @@ function fillSpotFacts(site: Site) {
   const key = bodyKey(site.body);
   const landmark = nearestKind(key, site.lat, site.lon, (place) => !NOT_LANDMARK.has(place.k));
   const crater = nearestKind(key, site.lat, site.lon, (place) => place.k === "crater");
+  $("#spotCoords").textContent = fmtCoords(site.lat, site.lon);
   $("#spotLandmark").textContent = landmark ? `Nearest landmark: ${placeLabel(landmark.place)}, ${howFar(landmark.km)}` : "";
   $("#spotCrater").textContent = crater ? away(crater.km, `the center of ${craterTitle(crater.place)}`) : "";
+}
+
+function parseLatLon(text: string) {
+  const tokens = text.trim().toUpperCase().replace(/°/g, "").split(/[,/]+|\s+/).filter(Boolean);
+  const nums: { n: number; hemi: string }[] = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    const match = tokens[i].match(/^([+-]?\d+(?:\.\d+)?)([NSEW])?$/);
+    if (!match) return null;
+    let hemi = match[2] || "";
+    if (!hemi && tokens[i + 1] && /^[NSEW]$/.test(tokens[i + 1])) {
+      hemi = tokens[i + 1];
+      i += 1;
+    }
+    let n = Number(match[1]);
+    if (hemi === "S" || hemi === "W") n = -Math.abs(n);
+    if (hemi === "N" || hemi === "E") n = Math.abs(n);
+    nums.push({ n, hemi });
+  }
+  if (nums.length !== 2) return null;
+  const swapped = nums[0].hemi === "E" || nums[0].hemi === "W" || nums[1].hemi === "N" || nums[1].hemi === "S";
+  const lat = swapped ? nums[1].n : nums[0].n;
+  const lon = swapped ? nums[0].n : nums[1].n;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+  return { lat, lon };
+}
+
+function fillCoordBody() {
+  const sel = $<HTMLSelectElement>("#coordBody");
+  const prev = sel.value;
+  sel.innerHTML = "";
+  const keys = earthMode() ? Object.values(slots()).filter((key) => key !== "earth") : Object.values(slots());
+  for (const key of keys) sel.add(new Option(bodies()[key].name, key));
+  if (Array.from(sel.options).some((option) => option.value === prev)) sel.value = prev;
+}
+
+function goToCoordinates() {
+  const parsed = parseLatLon(val("#coordText"));
+  if (!parsed) {
+    $("#status").textContent = "Enter coordinates like 18.1 N, 18.4 W or 18.1, -18.4.";
+    return;
+  }
+  void runQuery(val("#coordBody"), parsed.lat.toFixed(3), parsed.lon.toFixed(3));
 }
 
 type PlaceInfo = {
@@ -748,6 +792,7 @@ function applyChrome() {
   Object.keys(bodies()).filter((k) => k !== "earth").forEach((k) => from.add(new Option(bodies()[k].name, k)));
   if (Array.from(from.options).some((o) => o.value === prev)) from.value = prev;
   for (const slot of ["A", "B", "C"]) $<HTMLElement>(`#slot${slot}`).hidden = !(slot in slots());
+  fillCoordBody();
 }
 
 function renderPair() {
@@ -1022,6 +1067,10 @@ async function init() {
   renderValidation();
   void loadSearches();
   $("#topBtn").addEventListener("click", () => void runTop());
+  $("#coordGo").addEventListener("click", () => goToCoordinates());
+  $<HTMLInputElement>("#coordText").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") goToCoordinates();
+  });
   document.querySelectorAll<HTMLButtonElement>("#searchMode button").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (btn.dataset.mode === searchMode) return;
