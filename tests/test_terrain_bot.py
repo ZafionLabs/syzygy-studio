@@ -251,7 +251,9 @@ def test_web_api_round_trip():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{server.server_address[1]}"
     try:
-        assert b"Terrain Bot" in urlopen(base + "/").read()
+        page = urlopen(base + "/").read()
+        assert b"Terrain Bot" in page
+        assert b"Pick Moon or Mars" in page
         assert urlopen(base + "/map/images/moon.png").read().startswith(b"\x89PNG")
         info = json.load(urlopen(base + "/api/info"))
         assert info["sources"]["images"]["bodies"]["earth"]["color_max_m"] == pytest.approx(8848.86)

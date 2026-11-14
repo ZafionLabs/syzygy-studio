@@ -10,6 +10,7 @@
     --accent: #5aa9ff; --hi: #ff6b6b; --ok: #3ddc97; --sea: #4fc3f7; --land: #c5a46d;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
   header { padding: 18px 24px 8px; }
   h1 { margin: 0; font-size: 20px; font-weight: 650; }
@@ -23,6 +24,10 @@
   .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
   main { display: grid; gap: 16px; padding: 16px 24px 32px; }
   .maps { display: grid; gap: 16px; }
+  @media (min-width: 900px) {
+    .maps.earth-mode { grid-template-columns: 1fr 1fr; }
+    .maps.earth-mode .earth-result { grid-column: 1 / -1; }
+  }
   @media (min-width: 1400px) { .maps { grid-template-columns: 1fr 1fr; } .lower { grid-template-columns: 3fr 2fr; } }
   .lower { display: grid; gap: 16px; align-items: start; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
@@ -66,14 +71,23 @@
 <body>
 <header>
   <h1>Terrain Bot: Earth, Moon and Mars look-alike terrain</h1>
-  <p>Pick two bodies, then click anywhere on either map to find the places on the other one with the most similar terrain. Earth's underwater sea floor counts too.
+  <p>Pick a spot on the Moon or Mars to find the closest matches on Earth, or compare any two bodies. Earth's underwater sea floor counts too.
      By default it uses real measured elevations: NOAA ETOPO1 for Earth (including the ocean floor), NASA LRO LOLA for the Moon, and NASA MGS MOLA for Mars.
      You can switch to your images, scaled from each body's real lowest point to its highest: Challenger Deep (−10,935 m) to Everest (+8,849 m) on Earth, Point Trieste (−9,129 m) to the Selenean summit (+10,786 m) on the Moon, and Badwater crater in Hellas (−8,201 m) to Olympus Mons (+21,229 m) on Mars.
      Or use the images with a brightness curve fitted to the real data.</p>
 </header>
 
 <div class="toolbar">
-  <label>Compare <select id="bodyA"></select> with <select id="bodyB"></select></label>
+  <label>Search
+    <select id="searchMode">
+      <option value="on-earth">Pick Moon or Mars → closest places on Earth</option>
+      <option value="pair">Compare any two bodies</option>
+    </select>
+  </label>
+  <label id="pairBodies">Compare <select id="bodyA"></select> with <select id="bodyB"></select></label>
+  <label id="earthFromLabel">Top matches from
+    <select id="earthFrom"></select>
+  </label>
   <label>Data <select id="source"></select></label>
   <label>Compare by
     <select id="mode">
@@ -95,18 +109,24 @@
 </div>
 
 <main>
-  <div class="maps">
-    <section class="panel">
+  <div class="maps" id="maps">
+    <section class="panel" id="slotA">
       <h2><span id="titleA"></span> <small id="rangeA"></small></h2>
       <div class="mapwrap" id="map-A"><img alt="elevation map"></div>
       <div class="legend"><span id="minA"></span><span class="bar" id="barA"></span><span id="maxA"></span></div>
       <div class="hover" id="hover-A"></div>
     </section>
-    <section class="panel">
+    <section class="panel" id="slotB">
       <h2><span id="titleB"></span> <small id="rangeB"></small></h2>
       <div class="mapwrap" id="map-B"><img alt="elevation map"></div>
       <div class="legend"><span id="minB"></span><span class="bar" id="barB"></span><span id="maxB"></span></div>
       <div class="hover" id="hover-B"></div>
+    </section>
+    <section class="panel" id="slotC">
+      <h2><span id="titleC"></span> <small id="rangeC"></small></h2>
+      <div class="mapwrap" id="map-C"><img alt="elevation map"></div>
+      <div class="legend"><span id="minC"></span><span class="bar" id="barC"></span><span id="maxC"></span></div>
+      <div class="hover" id="hover-C"></div>
     </section>
   </div>
 
@@ -166,7 +186,15 @@ const fmtLL = (lat, lon) => `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
 const source = () => $("#source").value;
 const bodies = () => INFO.sources[source()].bodies;
-const slots = () => ({ A: $("#bodyA").value, B: $("#bodyB").value });
+const earthMode = () => $("#searchMode").value === "on-earth" && bodies().earth && Object.keys(bodies()).some((k) => k !== "earth");
+const slots = () => {
+  if (!earthMode()) return { A: $("#bodyA").value, B: $("#bodyB").value };
+  const extras = Object.keys(bodies()).filter((k) => k !== "earth");
+  const out = {};
+  extras.forEach((k, i) => { out["ABC"[i]] = k; });
+  out["ABC"[extras.length]] = "earth";
+  return out;
+};
 const slotOf = (body) => Object.entries(slots()).find(([, b]) => b === body)?.[0];
 const otherOf = (body) => (slots().A === body ? slots().B : slots().A);
 const params = () => `mode=${$("#mode").value}&source=${source()}&surface=${$("#surface").value}`;
@@ -271,8 +299,10 @@ let lastQuery = null;
 
 async function runQuery(body, lat, lon, label) {
   if (!slotOf(body)) return;
+  if (earthMode() && body === "earth") return;
   lastQuery = { body, lat, lon, label };
-  const target = otherOf(body);
+  const target = earthMode() ? "earth" : otherOf(body);
+  if (earthMode() && $("#earthFrom").querySelector(`option[value="${body}"]`)) $("#earthFrom").value = body;
   const k = $("#k").value;
   $("#status").textContent = `Searching ${bodies()[target].name} for terrain like ${label || fmtLL(+lat, +lon)}…`;
   try {
@@ -287,11 +317,17 @@ async function runQuery(body, lat, lon, label) {
 
 async function runTop() {
   lastQuery = null;
-  const k = $("#k").value, { A, B } = slots();
-  $("#status").textContent = `Comparing every ${bodies()[A].name} pixel with every ${bodies()[B].name} pixel…`;
+  const k = $("#k").value;
+  const A = earthMode() ? $("#earthFrom").value : slots().A;
+  const B = earthMode() ? "earth" : slots().B;
+  $("#status").textContent = earthMode()
+    ? `Comparing every ${bodies()[A].name} pixel with every place on Earth…`
+    : `Comparing every ${bodies()[A].name} pixel with every ${bodies()[B].name} pixel…`;
   try {
     const res = await api(`/api/top?n=${k}&a=${A}&b=${B}&${params()}`);
-    $("#status").textContent = `Top ${res.matches.length} most similar ${bodies()[A].name}/${bodies()[B].name} locations (${$("#mode").value} mode, ${INFO.sources[source()].label}). Click a row to see why.`;
+    $("#status").textContent = earthMode()
+      ? `Top ${res.matches.length} closest ${bodies()[A].name} places on Earth (${$("#mode").value} mode, ${INFO.sources[source()].label}). Click a row to see why.`
+      : `Top ${res.matches.length} most similar ${bodies()[A].name}/${bodies()[B].name} locations (${$("#mode").value} mode, ${INFO.sources[source()].label}). Click a row to see why.`;
     showResults(res.matches, null);
     showSteps(res.steps);
   } catch (e) { $("#status").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
@@ -304,6 +340,7 @@ function wireMap(slot) {
   let pending = null;
   wrap.addEventListener("mousemove", (ev) => {
     const body = slots()[slot];
+    if (!body) return;
     const { lat, lon } = toLatLon(body, ev);
     clearTimeout(pending);
     pending = setTimeout(async () => {
@@ -315,6 +352,7 @@ function wireMap(slot) {
   });
   wrap.addEventListener("click", (ev) => {
     const body = slots()[slot];
+    if (!body || (earthMode() && body === "earth")) return;
     const { lat, lon } = toLatLon(body, ev);
     runQuery(body, lat.toFixed(3), lon.toFixed(3));
   });
@@ -330,22 +368,44 @@ function fillBodySelects() {
   }
 }
 
+function applyChrome() {
+  const onEarth = earthMode();
+  $("#maps").classList.toggle("earth-mode", onEarth);
+  $("#pairBodies").hidden = onEarth;
+  $("#earthFromLabel").hidden = !onEarth;
+  $("#topBtn").textContent = onEarth ? "Show closest places on Earth" : "Show global top matches";
+  const from = $("#earthFrom");
+  const prev = from.value;
+  from.innerHTML = "";
+  Object.keys(bodies()).filter((k) => k !== "earth").forEach((k) => from.add(new Option(bodies()[k].name, k)));
+  if ([...from.options].some((o) => o.value === prev)) from.value = prev;
+  for (const slot of ["A", "B", "C"]) $(`#slot${slot}`).hidden = !(slot in slots());
+}
+
 function renderPair() {
   const src = source();
+  applyChrome();
   clearMarkers(true);
   for (const [slot, key] of Object.entries(slots())) {
     const b = bodies()[key];
+    const panel = $(`#slot${slot}`);
+    panel.hidden = false;
+    panel.classList.toggle("earth-result", earthMode() && key === "earth");
+    $(`#map-${slot}`).style.cursor = earthMode() && key === "earth" ? "default" : "crosshair";
     $(`#map-${slot} img`).src = `/map/${src}/${key}.png`;
     $(`#title${slot}`).textContent = b.name;
     $(`#min${slot}`).textContent = fmtM(b.color_min_m);
     $(`#max${slot}`).textContent = fmtM(b.color_max_m);
     $(`#bar${slot}`).style.background = GRADIENTS[key] || GRADIENTS.moon;
     $(`#range${slot}`).textContent = `${b.source_name} · ${b.width}×${b.height} px · ~${Math.round(b.pixel_km)} km per pixel`;
-    $(`#hover-${slot}`).textContent = `Hover to read elevation. Click to search ${bodies()[otherOf(key)].name}.`;
+    $(`#hover-${slot}`).textContent = earthMode()
+      ? (key === "earth" ? "Closest places on Earth show up here." : "Hover to read elevation. Click to find the closest places on Earth.")
+      : `Hover to read elevation. Click to search ${bodies()[otherOf(key)].name}.`;
     for (const lm of b.landmarks) place(key, lm.lat, lm.lon, "lm", lm.kind === "highest" ? "▲" : "▼", lm.name);
   }
   $("#lmButtons").innerHTML = "";
-  for (const key of Object.values(slots())) {
+  const buttonKeys = earthMode() ? Object.values(slots()).filter((k) => k !== "earth") : Object.values(slots());
+  for (const key of buttonKeys) {
     for (const lm of bodies()[key].landmarks) {
       const btn = document.createElement("button");
       btn.textContent = LANDMARK_LABELS[`${key},${lm.kind}`] || lm.name;
@@ -388,10 +448,19 @@ async function init() {
   $("#mode").value = INFO.default_mode;
   fillBodySelects();
   $("#bodyA").value = "earth"; $("#bodyB").value = "moon";
-  wireMap("A"); wireMap("B");
+  wireMap("A"); wireMap("B"); wireMap("C");
   renderPair();
   renderValidation();
   $("#topBtn").addEventListener("click", runTop);
+  $("#searchMode").addEventListener("change", () => {
+    lastQuery = null;
+    renderPair();
+    $("#results").hidden = true;
+    $("#steps").innerHTML = "";
+    $("#breakdownWrap").hidden = true;
+    if (earthMode()) $("#status").textContent = "Click a spot on the Moon or Mars to find the closest matches on Earth.";
+    else runTop();
+  });
   sel.addEventListener("change", () => { fillBodySelects(); renderPair(); rerun(); });
   for (const id of ["#bodyA", "#bodyB"]) {
     $(id).addEventListener("change", (ev) => {
@@ -405,7 +474,8 @@ async function init() {
   }
   $("#mode").addEventListener("change", rerun);
   $("#surface").addEventListener("change", rerun);
-  runTop();
+  if (earthMode()) $("#status").textContent = "Click a spot on the Moon or Mars to find the closest matches on Earth.";
+  else runTop();
 }
 
 init().catch((e) => { $("#status").innerHTML = `<span class="err">${esc(e.message)}</span>`; });
