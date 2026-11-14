@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import ssl
+import sys
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -163,6 +164,85 @@ def moon_geology() -> Image.Image:
 
 def write_image(image: Image.Image, name: str) -> None:
     image.save(OUT / name, format="PNG", optimize=True)
+
+
+def _hq(url: str, name: str) -> np.ndarray:
+    image = Image.open(fetch(url, name)).convert("RGB")
+    if image.size != (GEO_W, GEO_H):
+        image = image.resize((GEO_W, GEO_H), Image.Resampling.BILINEAR)
+    return np.asarray(image)
+
+
+def gibs_hq(layer: str, time: str, name: str) -> np.ndarray:
+    url = (
+        "https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi"
+        f"?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS={layer}"
+        f"&FORMAT=image/jpeg&CRS=EPSG:4326&BBOX=-90,-180,90,180"
+        f"&WIDTH={GEO_W}&HEIGHT={GEO_H}&TIME={time}"
+    )
+    return _hq(url, name)
+
+
+def usgs_hq(mapfile: str, layer: str, name: str) -> np.ndarray:
+    url = (
+        "https://planetarymaps.usgs.gov/cgi-bin/mapserv"
+        f"?map={mapfile}&service=WMS&request=GetMap&version=1.1.1"
+        f"&layers={layer}&styles=&bbox=-180,-90,180,90&width={GEO_W}&height={GEO_H}"
+        "&srs=EPSG:4326&format=image/jpeg&transparent=false"
+    )
+    return _hq(url, name)
+
+
+def paint(base: np.ndarray, color: np.ndarray, alpha: np.ndarray) -> Image.Image:
+    cover = alpha.astype(np.float32)[..., None]
+    mixed = base.astype(np.float32) * (1.0 - cover) + color.astype(np.float32) * cover
+    return Image.fromarray(np.clip(mixed, 0, 255).astype(np.uint8), "RGB")
+
+
+def earth_weather() -> Image.Image:
+    """Blue Marble with one day of IMERG rain drawn on top, at 8 pixels per degree."""
+    ground = gibs_hq("BlueMarble_NextGeneration", "2004-08-01", "earth_bluemarble_hq.jpg")
+    rain = gibs_hq("IMERG_Precipitation_Rate", "2024-07-15", "earth_weather_hq.jpg")
+    strength = rain.max(axis=2).astype(np.float32)
+    alpha = np.clip((strength - 26.0) / 70.0, 0.0, 0.92)
+    return paint(ground, rain, alpha)
+
+
+def mars_weather() -> Image.Image:
+    """Viking mosaic with the MY34 global dust storm (Ls 209°) painted from the kriged MCS map."""
+    import netCDF4
+
+    path = fetch(
+        "https://www-mars.lmd.jussieu.fr/mars/dust_climatology/dataset_v2/dustscenario_MY34_v2-5.nc",
+        "dustscenario_MY34.nc",
+    )
+    dataset = netCDF4.Dataset(path)
+    solar_longitude = np.asarray(dataset.variables["Ls"][:])
+    instant = int(np.argmin(np.abs(solar_longitude - 208.7)))
+    dust = np.asarray(dataset.variables["cdod610"][instant], dtype=np.float32)
+    dataset.close()
+    field = np.array(Image.fromarray(dust, "F").resize((GEO_W, GEO_H), Image.Resampling.BILINEAR))
+    amount = np.clip((field - 0.30) / 2.0, 0.0, 1.0)
+    pale = np.array([255, 236, 190], np.float32)
+    ochre = np.array([150, 78, 28], np.float32)
+    color = (ochre * (1.0 - amount)[..., None] + pale * amount[..., None]).astype(np.uint8)
+    alpha = np.clip((field - 0.30) / 2.2, 0.0, 0.78)
+    ground = usgs_hq("/maps/mars/mars_simp_cyl.map", "MDIM21_color", "mars_light_hq.jpg")
+    return paint(ground, color, alpha)
+
+
+def moon_weather() -> Image.Image:
+    """The Moon has no atmosphere. The day-night temperature swing is drawn on the WAC mosaic."""
+    hottest = diviner_grid("diviner_tbol_max.xyz")
+    coldest = diviner_grid("diviner_tbol_min.xyz")
+    swing = hottest - coldest
+    low, high = limits(swing, np.isfinite(swing))
+    colored = np.asarray(colorize(swing, np.isfinite(swing), low, high).resize((GEO_W, GEO_H), Image.Resampling.NEAREST))
+    amount = np.clip((swing - low) / (high - low if high > low else 1.0), 0.0, 1.0)
+    amount = np.array(Image.fromarray(amount.astype(np.float32), "F").resize((GEO_W, GEO_H), Image.Resampling.NEAREST))
+    ground = usgs_hq("/maps/earth/moon_simp_cyl.map", "LROC_WAC", "moon_light_hq.jpg")
+    alpha = 0.22 + 0.50 * amount
+    return paint(ground, colored, alpha)
 
 
 def earth_geology() -> Image.Image:
@@ -341,12 +421,12 @@ def catalog() -> dict:
                     "photo",
                 ),
                 "weather": entry(
-                    "Rain and snow rate",
-                    "NASA GIBS / IMERG, 15 July 2024",
+                    "Rain and snow on 15 July 2024",
+                    "NASA IMERG precipitation on the Blue Marble",
                     "little precipitation",
                     "heavy precipitation",
-                    "One day of NASA IMERG precipitation. Green is lighter rain and red is heavier. Dark areas had little or no precipitation that day.",
-                    "Huffman, G. J., and others, NASA IMERG. Map: NASA GIBS layer IMERG_Precipitation_Rate for 15 July 2024.",
+                    "One day of global rain and snow, drawn on a cloud-free view of Earth so the continents stay visible. Green is lighter rain and yellow to red is heavier.",
+                    "Huffman, G. J., and others, NASA IMERG. Rain map: NASA GIBS IMERG_Precipitation_Rate, 15 July 2024, 8 pixels per degree. Base: Stöckli and others, Blue Marble Next Generation, August 2004.",
                     "rain",
                 ),
                 "light": entry(
@@ -398,11 +478,11 @@ def catalog() -> dict:
                 ),
                 "weather": entry(
                     "Day–night temperature swing",
-                    "LRO Diviner maximum minus minimum, 2009–2015",
+                    "LRO Diviner on the LROC WAC mosaic",
                     "smaller change",
                     "larger change",
-                    "The Moon has no atmosphere, so it has no wind, clouds, or storms. This is the change from the coldest to the hottest temperature of the ground, which is how the surface environment changes through a lunar day.",
-                    "Williams, J.-P., and others (2017), Icarus 283, 300–325. The map is the Diviner bolometric maximum minus the minimum on the same 0.5° grid.",
+                    "The Moon has no atmosphere, so it has no wind, clouds, or storms. The color is how much the ground warms from night to day, drawn on the lunar map. Brighter yellow means a larger change.",
+                    "Williams, J.-P., and others (2017), Icarus 283, 300–325. The color is the Diviner bolometric maximum minus the minimum on the 0.5° grid. Base map: USGS LROC WAC mosaic.",
                     "heat",
                 ),
                 "light": entry(
@@ -453,13 +533,13 @@ def catalog() -> dict:
                     "photo",
                 ),
                 "weather": entry(
-                    "Dust in the atmosphere",
-                    "MGS TES column dust optical depth, Mars Year 25",
+                    "Global dust storm, Mars Year 34",
+                    "MCS dust map on the Viking mosaic, Ls 209°",
                     "clearer air",
-                    "more dust",
-                    "Dust opacity at 9.3 μm, averaged in 5° cells across Mars Year 25. Southern summer raises the dust. Empty cells are dark.",
-                    "Montabone, L., and others (2015), Eight-year climatology of dust optical depth on Mars, Icarus 251, 65–95. Retrievals: NASA PDS TES infrared column dust optical depth for all of Mars Year 25.",
-                    "heat",
+                    "dust storm",
+                    "The 2018 global dust storm, one day at solar longitude 209°. Pale ochre is thick dust and the ground shows through where the air is clearer. The dust field is a published 3° map, so the storm is smooth while the surface underneath stays sharp.",
+                    "Montabone, L., and others (2020), Martian year 34 column dust climatology from Mars Climate Sounder observations, Journal of Geophysical Research: Planets, doi:10.1029/2019JE006111. Kriged scenario version 2-5, column dust at 610 Pa. Base map: USGS Viking MDIM 2.1.",
+                    "dust",
                 ),
                 "light": entry(
                     "Viking color mosaic",
@@ -534,18 +614,30 @@ def main() -> None:
     save(colorize(cold, np.isfinite(cold), *limits(cold, np.isfinite(cold))), "moon_ice-water.png")
     write_image(moon_geology(), "moon_geology.png")
     write_image(earth_geology(), "earth_geology.png")
-    save(colorize(swing, np.isfinite(swing), *limits(swing, np.isfinite(swing))), "moon_weather.png")
+    write_image(moon_weather(), "moon_weather.png")
     save(colorize(emitted, np.isfinite(emitted), *limits(emitted, np.isfinite(emitted))), "moon_radiation.png")
 
     save(colorize(temp_map, np.isfinite(temp_map), *limits(temp_map, np.isfinite(temp_map))), "mars_temperature.png")
     save(colorize(hydrogen, np.isfinite(hydrogen), *limits(hydrogen, np.isfinite(hydrogen))), "mars_ice-water.png")
     write_image(mars_geology(), "mars_geology.png")
-    save(colorize(dust_map, np.isfinite(dust_map), *limits(dust_map, np.isfinite(dust_map))), "mars_weather.png")
+    write_image(mars_weather(), "mars_weather.png")
+    write_image(earth_weather(), "earth_weather.png")
     save(colorize(fast, np.isfinite(fast), *limits(fast, np.isfinite(fast))), "mars_radiation.png")
 
     (OUT / "catalog.json").write_text(json.dumps(catalog(), indent=2) + "\n")
     print("wrote replacement maps")
 
 
+def rebuild_weather() -> None:
+    write_image(earth_weather(), "earth_weather.png")
+    write_image(moon_weather(), "moon_weather.png")
+    write_image(mars_weather(), "mars_weather.png")
+    (OUT / "catalog.json").write_text(json.dumps(catalog(), indent=2) + "\n")
+    print("wrote weather maps")
+
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "weather":
+        rebuild_weather()
+    else:
+        main()

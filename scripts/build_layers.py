@@ -107,7 +107,6 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     save(gibs("MERRA2_2m_Air_Temperature_Monthly", "2024-07-01", "earth_temperature.jpg"), "earth_temperature.png")
     save(gibs("BlueMarble_NextGeneration", "2004-08-01", "earth_bluemarble.jpg"), "earth_light.png")
-    save(gibs("IMERG_Precipitation_Rate", "2024-07-15", "earth_weather.jpg"), "earth_weather.png")
     save(gibs("CERES_EBAF_TOA_Longwave_Flux_All_Sky_Monthly", "2018-07-01", "earth_longwave.jpg"), "earth_radiation.png")
     snow = gibs("MODIS_Terra_NDSI_Snow_Cover", "2024-01-15", "earth_snow.jpg")
     sea_ice = gibs("AMSRU2_Sea_Ice_Concentration_25km", "2024-03-01", "earth_ice.jpg")

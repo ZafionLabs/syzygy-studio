@@ -63,12 +63,12 @@
       },
       "weather": {
         "available": true,
-        "title": "Rain and snow rate",
-        "source": "NASA GIBS / IMERG, 15 July 2024",
+        "title": "Rain and snow on 15 July 2024",
+        "source": "NASA IMERG precipitation on the Blue Marble",
         "low": "little precipitation",
         "high": "heavy precipitation",
-        "note": "One day of NASA IMERG precipitation. Green is lighter rain and red is heavier. Dark areas had little or no precipitation that day.",
-        "citation": "Huffman, G. J., and others, NASA IMERG. Map: NASA GIBS layer IMERG_Precipitation_Rate for 15 July 2024.",
+        "note": "One day of global rain and snow, drawn on a cloud-free view of Earth so the continents stay visible. Green is lighter rain and yellow to red is heavier.",
+        "citation": "Huffman, G. J., and others, NASA IMERG. Rain map: NASA GIBS IMERG_Precipitation_Rate, 15 July 2024, 8 pixels per degree. Base: St\u00f6ckli and others, Blue Marble Next Generation, August 2004.",
         "ramp": "rain"
       },
       "light": {
@@ -126,11 +126,11 @@
       "weather": {
         "available": true,
         "title": "Day\u2013night temperature swing",
-        "source": "LRO Diviner maximum minus minimum, 2009\u20132015",
+        "source": "LRO Diviner on the LROC WAC mosaic",
         "low": "smaller change",
         "high": "larger change",
-        "note": "The Moon has no atmosphere, so it has no wind, clouds, or storms. This is the change from the coldest to the hottest temperature of the ground, which is how the surface environment changes through a lunar day.",
-        "citation": "Williams, J.-P., and others (2017), Icarus 283, 300\u2013325. The map is the Diviner bolometric maximum minus the minimum on the same 0.5\u00b0 grid.",
+        "note": "The Moon has no atmosphere, so it has no wind, clouds, or storms. The color is how much the ground warms from night to day, drawn on the lunar map. Brighter yellow means a larger change.",
+        "citation": "Williams, J.-P., and others (2017), Icarus 283, 300\u2013325. The color is the Diviner bolometric maximum minus the minimum on the 0.5\u00b0 grid. Base map: USGS LROC WAC mosaic.",
         "ramp": "heat"
       },
       "light": {
@@ -187,13 +187,13 @@
       },
       "weather": {
         "available": true,
-        "title": "Dust in the atmosphere",
-        "source": "MGS TES column dust optical depth, Mars Year 25",
+        "title": "Global dust storm, Mars Year 34",
+        "source": "MCS dust map on the Viking mosaic, Ls 209\u00b0",
         "low": "clearer air",
-        "high": "more dust",
-        "note": "Dust opacity at 9.3 \u03bcm, averaged in 5\u00b0 cells across Mars Year 25. Southern summer raises the dust. Empty cells are dark.",
-        "citation": "Montabone, L., and others (2015), Eight-year climatology of dust optical depth on Mars, Icarus 251, 65\u201395. Retrievals: NASA PDS TES infrared column dust optical depth for all of Mars Year 25.",
-        "ramp": "heat"
+        "high": "dust storm",
+        "note": "The 2018 global dust storm, one day at solar longitude 209\u00b0. Pale ochre is thick dust and the ground shows through where the air is clearer. The dust field is a published 3\u00b0 map, so the storm is smooth while the surface underneath stays sharp.",
+        "citation": "Montabone, L., and others (2020), Martian year 34 column dust climatology from Mars Climate Sounder observations, Journal of Geophysical Research: Planets, doi:10.1029/2019JE006111. Kriged scenario version 2-5, column dust at 610 Pa. Base map: USGS Viking MDIM 2.1.",
+        "ramp": "dust"
       },
       "light": {
         "available": true,

@@ -72,7 +72,7 @@ type LayerInfo = {
   high?: string;
   note: string;
   citation?: string;
-  ramp?: "heat" | "rain" | "photo";
+  ramp?: "heat" | "rain" | "dust" | "photo";
 };
 
 type LayerCatalog = {
@@ -110,6 +110,7 @@ const GRADIENTS: Record<string, string> = {
 const RAMPS: Record<string, string> = {
   heat: "linear-gradient(90deg,#000004,#420a68,#932667,#dd513a,#fca50a,#fcffa4)",
   rain: "linear-gradient(90deg,#102018,#1a7a32,#c8e020,#f0a020,#e02020)",
+  dust: "linear-gradient(90deg,#2a2118,#c47832,#f0c060,#fff4d0)",
   photo: "transparent",
 };
 const LANDMARK_LABELS: Record<string, string> = {
