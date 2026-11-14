@@ -223,6 +223,60 @@ function placeName(site: Site) {
   return named ? placeLabel(named) : fmtLL(site.lat, site.lon);
 }
 
+const RADIUS_KM: Record<string, number> = { earth: 6371, moon: 1737.4, mars: 3389.5 };
+const NOT_LANDMARK = new Set(["crater", "satellite feature", "astronaut-named features", "albedo feature"]);
+
+function distanceKm(key: string, lat: number, lon: number, place: Place) {
+  const radius = RADIUS_KM[key] ?? 6371;
+  const rad = Math.PI / 180;
+  const dLat = (place.lat - lat) * rad;
+  const dLon = (place.lon - lon) * rad;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat * rad) * Math.cos(place.lat * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * radius * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+function nearestKind(key: string, lat: number, lon: number, accept: (place: Place) => boolean) {
+  const groups = key === "earth" ? [PLACES?.earth || [], PLACES?.ocean || []] : [PLACES?.[key as "moon" | "mars"] || []];
+  let best: Place | null = null;
+  let bestKm = Infinity;
+  for (const group of groups) {
+    for (const place of group) {
+      if (!accept(place)) continue;
+      const km = distanceKm(key, lat, lon, place);
+      if (km < bestKm) {
+        best = place;
+        bestKm = km;
+      }
+    }
+  }
+  return best ? { place: best, km: bestKm } : null;
+}
+
+function away(km: number, what: string) {
+  if (km < 0.05) return `at ${what}`;
+  const dist = km < 1 ? `${Math.round(km * 1000)} m` : km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km).toLocaleString()} km`;
+  return `${dist} from ${what}`;
+}
+
+function howFar(km: number) {
+  if (km < 0.05) return "here";
+  if (km < 1) return `${Math.round(km * 1000)} m away`;
+  if (km < 10) return `${km.toFixed(1)} km away`;
+  return `${Math.round(km).toLocaleString()} km away`;
+}
+
+function craterTitle(place: Place) {
+  return /crater/i.test(place.n) ? place.n : `${place.n} crater`;
+}
+
+function fillSpotFacts(site: Site) {
+  const key = bodyKey(site.body);
+  const landmark = nearestKind(key, site.lat, site.lon, (place) => !NOT_LANDMARK.has(place.k));
+  const crater = nearestKind(key, site.lat, site.lon, (place) => place.k === "crater");
+  $("#spotLandmark").textContent = landmark ? `Nearest landmark: ${placeLabel(landmark.place)}, ${howFar(landmark.km)}` : "";
+  $("#spotCrater").textContent = crater ? away(crater.km, `the center of ${craterTitle(crater.place)}`) : "";
+}
+
 type PlaceInfo = {
   name: string;
   body: string;
@@ -341,6 +395,7 @@ function openCard(ev: MouseEvent, site: Site, match: Match | null) {
   const card = $<HTMLElement>("#placecard");
   const img = $<HTMLImageElement>("#spotImg");
   $("#spotName").textContent = placeName(site);
+  fillSpotFacts(site);
   img.alt = placeName(site);
   img.src = `/api/place-image?body=${bodyKey(site.body)}&lat=${site.lat.toFixed(3)}&lon=${site.lon.toFixed(3)}&km=120`;
   img.onload = () => { if (token === cardToken) moveCard({ clientX: cardPoint.x, clientY: cardPoint.y } as MouseEvent); };
