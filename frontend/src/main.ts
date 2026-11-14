@@ -470,16 +470,9 @@ function loadMap(url: string) {
 const earthMode = () => searchMode === "on-earth" && Boolean(bodies().earth) && Object.keys(bodies()).some((k) => k !== "earth");
 const slots = () => {
   if (!earthMode()) return { A: val("#bodyA"), B: val("#bodyB") } as Record<string, string>;
-  const extras = Object.keys(bodies()).filter((k) => k !== "earth");
-  const letters = ["A", "B", "C"];
-  const out: Record<string, string> = {};
-  extras.forEach((k, i) => {
-    const letter = letters[i];
-    if (letter) out[letter] = k;
-  });
-  const earthSlot = letters[extras.length];
-  if (earthSlot) out[earthSlot] = "earth";
-  return out;
+  const choices = Object.keys(bodies()).filter((k) => k !== "earth");
+  const chosen = choices.includes(val("#earthFrom")) ? val("#earthFrom") : (choices[0] || "moon");
+  return { A: chosen, B: "earth" };
 };
 const slotOf = (body: string) => Object.entries(slots()).find(([, b]) => b === body)?.[0];
 const otherOf = (body: string) => (slots().A === body ? slots().B : slots().A);
@@ -784,13 +777,19 @@ function applyChrome() {
   const onEarth = earthMode();
   $("#maps").classList.toggle("earth-mode", onEarth);
   $<HTMLElement>("#pairBodies").hidden = onEarth;
-  $<HTMLElement>("#earthFromLabel").hidden = !onEarth;
+  $<HTMLElement>("#fromBody").hidden = !onEarth;
+  $<HTMLElement>("#earthFromLabel").hidden = true;
   $("#topBtn").textContent = onEarth ? "Show closest places on Earth" : "Show global top matches";
   const from = $<HTMLSelectElement>("#earthFrom");
   const prev = from.value;
   from.innerHTML = "";
   Object.keys(bodies()).filter((k) => k !== "earth").forEach((k) => from.add(new Option(bodies()[k].name, k)));
   if (Array.from(from.options).some((o) => o.value === prev)) from.value = prev;
+  document.querySelectorAll<HTMLButtonElement>("#fromBody button").forEach((button) => {
+    const on = button.dataset.body === from.value;
+    button.classList.toggle("on", on);
+    button.setAttribute("aria-pressed", on ? "true" : "false");
+  });
   for (const slot of ["A", "B", "C"]) $<HTMLElement>(`#slot${slot}`).hidden = !(slot in slots());
   fillCoordBody();
 }
@@ -1067,6 +1066,19 @@ async function init() {
   renderValidation();
   void loadSearches();
   $("#topBtn").addEventListener("click", () => void runTop());
+  document.querySelectorAll<HTMLButtonElement>("#fromBody button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const body = button.dataset.body || "moon";
+      if (body === val("#earthFrom")) return;
+      $<HTMLSelectElement>("#earthFrom").value = body;
+      lastQuery = null;
+      renderPair();
+      $<HTMLElement>("#results").hidden = true;
+      $("#steps").innerHTML = "";
+      $<HTMLElement>("#breakdownWrap").hidden = true;
+      $("#status").textContent = `Click a spot on ${bodies()[body].name} to find the closest matches on Earth.`;
+    });
+  });
   $("#coordGo").addEventListener("click", () => goToCoordinates());
   $<HTMLInputElement>("#coordText").addEventListener("keydown", (ev) => {
     if (ev.key === "Enter") goToCoordinates();

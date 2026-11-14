@@ -9,7 +9,7 @@
 <body>
 <header>
   <h1>Terrain Bot: Earth, Moon and Mars look-alike terrain</h1>
-  <p>Find closest match by clicking the Moon or Mars. Compare two bodies by clicking either map. Earth's underwater sea floor counts too.
+  <p>Find closest match by choosing the Moon or Mars, then clicking that map. Compare two bodies by clicking either map. Earth's underwater sea floor counts too.
      By default it uses real measured elevations: NOAA ETOPO1 for Earth (including the ocean floor), NASA LRO LOLA for the Moon, and NASA MGS MOLA for Mars.
      You can switch to your images, scaled from each body's real lowest point to its highest: Challenger Deep (−10,935 m) to Everest (+8,849 m) on Earth, Point Trieste (−9,129 m) to the Selenean summit (+10,786 m) on the Moon, and Badwater crater in Hellas (−8,201 m) to Olympus Mons (+21,229 m) on Mars.
      Or use the images with a brightness curve fitted to the real data.
@@ -22,7 +22,11 @@
     <button type="button" data-mode="pair" aria-pressed="false">Compare two bodies</button>
   </div>
   <label id="pairBodies">Compare <select id="bodyA"></select> with <select id="bodyB"></select></label>
-  <label id="earthFromLabel">Top matches from
+  <div class="toggle" id="fromBody" role="group" aria-label="Moon or Mars" hidden>
+    <button type="button" data-body="moon" class="on" aria-pressed="true">Moon</button>
+    <button type="button" data-body="mars" aria-pressed="false">Mars</button>
+  </div>
+  <label id="earthFromLabel" hidden>Top matches from
     <select id="earthFrom"></select>
   </label>
   <label>Data <select id="source"></select></label>
