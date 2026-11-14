@@ -58,6 +58,19 @@ trench bottoms.
 `--surface land|underwater` (and the web UI's "Earth points" selector) restricts the Earth side to
 dry land or sea floor.
 
+## Other maps
+
+The web app can switch the globes from elevation to temperature, ice and water, geology, weather, light, or radiation. A click still searches by elevation. The images are in `data/layers/` and are built by `python3 scripts/build_layers.py`.
+
+| Map | Earth | Moon | Mars |
+|---|---|---|---|
+| Temperature | MERRA-2 air temperature, July 2024 | LRO Diviner temperature variation, 60°S–60°N | THEMIS nighttime infrared |
+| Ice and water | Ocean from ETOPO1, AMSR2 sea ice, MODIS snow | not included | TES albedo frost poleward of 65° |
+| Geology | CRUST1.0 crustal thickness | Diviner rock abundance, 60°S–60°N | TES thermal inertia, 60°N–50°S |
+| Weather | IMERG precipitation, 15 July 2024 | no atmosphere | not included |
+| Light | Blue Marble, August 2004 | LRO WAC mosaic | Viking MDIM color mosaic |
+| Radiation | CERES outgoing longwave, July 2018 | not included | not included |
+
 ## Usage
 
 ```bash

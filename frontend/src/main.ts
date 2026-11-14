@@ -64,6 +64,20 @@ type Step = { title: string; lines: string[] };
 type QueryResult = { origin: Site; matches: Match[]; steps: Step[] };
 type TopResult = { matches: Match[]; steps: Step[] };
 
+type LayerInfo = {
+  available: boolean;
+  title?: string;
+  source?: string;
+  low?: string;
+  high?: string;
+  note: string;
+};
+
+type LayerCatalog = {
+  layers: { id: string; label: string }[];
+  bodies: Record<string, Record<string, LayerInfo>>;
+};
+
 type SearchRow = {
   id: number;
   created_at: string;
@@ -107,6 +121,8 @@ const bodies = () => {
   return INFO.sources[source()].bodies;
 };
 let searchMode = "on-earth";
+let LAYERS: LayerCatalog | null = null;
+let layerId = "elevation";
 const earthMode = () => searchMode === "on-earth" && Boolean(bodies().earth) && Object.keys(bodies()).some((k) => k !== "earth");
 const slots = () => {
   if (!earthMode()) return { A: val("#bodyA"), B: val("#bodyB") } as Record<string, string>;
@@ -292,6 +308,7 @@ function wireMap(slot: string) {
   wrap.addEventListener("click", (ev) => {
     const body = slots()[slot];
     if (!body || (earthMode() && body === "earth")) return;
+    if (layerId !== "elevation" && LAYERS?.bodies[body]?.[layerId]?.available === false) return;
     const { lat, lon } = toLatLon(body, ev);
     void runQuery(body, lat.toFixed(3), lon.toFixed(3));
   });
@@ -330,13 +347,24 @@ function renderPair() {
     const panel = $<HTMLElement>(`#slot${slot}`);
     panel.hidden = false;
     panel.classList.toggle("earth-result", earthMode() && key === "earth");
-    $(`#map-${slot}`).style.cursor = earthMode() && key === "earth" ? "default" : "crosshair";
-    $<HTMLImageElement>(`#map-${slot} img`).src = `/map/${src}/${key}.png`;
+    const thematic = layerId === "elevation" ? undefined : LAYERS?.bodies[key]?.[layerId];
+    const missing = Boolean(thematic && !thematic.available);
+    $(`#map-${slot}`).style.cursor = missing || (earthMode() && key === "earth") ? "default" : "crosshair";
+    const img = $<HTMLImageElement>(`#map-${slot} img`);
+    img.hidden = missing;
+    const unavailable = $<HTMLElement>(`#map-${slot} .unavailable`);
+    unavailable.hidden = !missing;
+    unavailable.textContent = thematic?.note || "";
+    if (!missing) img.src = layerId === "elevation" ? `/map/${src}/${key}.png` : `/map/layer/${key}/${layerId}.png`;
     $(`#title${slot}`).textContent = b.name;
-    $(`#min${slot}`).textContent = fmtM(b.color_min_m);
-    $(`#max${slot}`).textContent = fmtM(b.color_max_m);
-    $(`#bar${slot}`).style.background = GRADIENTS[key] || GRADIENTS.moon;
-    $(`#range${slot}`).textContent = `${b.source_name} · ${b.width}×${b.height} px · ~${Math.round(b.pixel_km)} km per pixel`;
+    $(`#min${slot}`).textContent = missing ? "" : thematic?.available ? (thematic.low || "") : fmtM(b.color_min_m);
+    $(`#max${slot}`).textContent = missing ? "" : thematic?.available ? (thematic.high || "") : fmtM(b.color_max_m);
+    $(`#bar${slot}`).style.background = missing ? "transparent" : (GRADIENTS[key] || GRADIENTS.moon);
+    $(`#range${slot}`).textContent = missing
+      ? ""
+      : thematic?.available
+        ? `${thematic.title} · ${thematic.source}`
+        : `${b.source_name} · ${b.width}×${b.height} px · ~${Math.round(b.pixel_km)} km per pixel`;
     $(`#hover-${slot}`).textContent = earthMode()
       ? (key === "earth" ? "Closest places on Earth show up here." : "Hover to read elevation. Click to find the closest places on Earth.")
       : `Hover to read elevation. Click to search ${bodies()[otherOf(key)].name}.`;
@@ -361,6 +389,13 @@ function renderPair() {
         `The map's ${k} point is ${Math.round(e.map_pixel_offset_km).toLocaleString()} km away.`;
     }).join("\n");
   }).join("\n\n");
+  const note = $("#layerNote");
+  if (layerId === "elevation") {
+    note.textContent = "Elevation. Lightest is highest and darkest is lowest. A click still searches this terrain on every map.";
+  } else {
+    const shown = Object.values(slots()).map((key) => LAYERS?.bodies[key]?.[layerId]).filter((item): item is LayerInfo => Boolean(item));
+    note.textContent = shown.find((item) => item.available)?.note || shown[0]?.note || "";
+  }
 }
 
 function renderValidation() {
@@ -429,8 +464,30 @@ function replay(row: SearchRow) {
   void runTop();
 }
 
+function setLayer(id: string) {
+  layerId = id;
+  document.querySelectorAll<HTMLButtonElement>("#layerPick button").forEach((button) => {
+    const on = button.dataset.layer === id;
+    button.classList.toggle("on", on);
+    button.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  renderPair();
+}
+
 async function init() {
   INFO = await api<Info>("/api/info");
+  LAYERS = await api<LayerCatalog>("/api/layers");
+  const pick = $("#layerPick");
+  for (const item of LAYERS.layers) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.layer = item.id;
+    button.textContent = item.label;
+    button.addEventListener("click", () => setLayer(item.id));
+    pick.appendChild(button);
+  }
+  document.querySelector<HTMLButtonElement>("#layerPick button")?.classList.add("on");
+  document.querySelector<HTMLButtonElement>("#layerPick button")?.setAttribute("aria-pressed", "true");
   const sel = $<HTMLSelectElement>("#source");
   for (const [key, s] of Object.entries(INFO.sources)) sel.add(new Option(s.label, key));
   sel.value = INFO.default_source;

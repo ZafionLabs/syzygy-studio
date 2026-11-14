@@ -1,0 +1,164 @@
+{
+  "layers": [
+    {
+      "id": "elevation",
+      "label": "Elevation"
+    },
+    {
+      "id": "temperature",
+      "label": "Temperature"
+    },
+    {
+      "id": "ice-water",
+      "label": "Ice and water"
+    },
+    {
+      "id": "geology",
+      "label": "Geology"
+    },
+    {
+      "id": "weather",
+      "label": "Weather"
+    },
+    {
+      "id": "light",
+      "label": "Light"
+    },
+    {
+      "id": "radiation",
+      "label": "Radiation"
+    }
+  ],
+  "bodies": {
+    "earth": {
+      "temperature": {
+        "available": true,
+        "title": "Air temperature, 2 m",
+        "source": "NASA GIBS / MERRA-2 monthly, July 2024",
+        "low": "colder",
+        "high": "warmer",
+        "note": "July 2024 monthly air temperature about 2 m above the surface. Yellow and red are warmer; blue and purple are colder."
+      },
+      "ice-water": {
+        "available": true,
+        "title": "Ocean, sea ice, and snow",
+        "source": "ETOPO1 plus AMSR2 sea ice (March 2024) and MODIS snow (15 Jan 2024)",
+        "low": "open water",
+        "high": "ice or snow",
+        "note": "Blue is ocean and brown is land, from ETOPO1. Sea ice is the March 2024 AMSR2 concentration. Snow is the 15 January 2024 MODIS snow cover, including the Antarctic ice sheet."
+      },
+      "geology": {
+        "available": true,
+        "title": "Crustal thickness",
+        "source": "CRUST1.0, Laske, Masters, Ma, and Pasyanos 2013",
+        "low": "thinner crust",
+        "high": "thicker crust",
+        "note": "Thickness of ice, sediment, and crystalline crust, with the ocean water left out. Ocean crust is thin; continents and mountains are thick."
+      },
+      "weather": {
+        "available": true,
+        "title": "Rain and snow rate",
+        "source": "NASA GIBS / IMERG, 15 July 2024",
+        "low": "little precipitation",
+        "high": "heavy precipitation",
+        "note": "One day of NASA IMERG precipitation. Green is lighter rain and red is heavier. Dark areas had little or no precipitation that day."
+      },
+      "light": {
+        "available": true,
+        "title": "Blue Marble",
+        "source": "NASA Blue Marble Next Generation, August 2004",
+        "low": "darker surface",
+        "high": "brighter surface",
+        "note": "Cloud-free view of reflected sunlight. Ice and desert are bright; forest and ocean are darker."
+      },
+      "radiation": {
+        "available": true,
+        "title": "Outgoing longwave radiation",
+        "source": "NASA CERES EBAF, July 2018",
+        "low": "less heat leaving",
+        "high": "more heat leaving",
+        "note": "Heat radiation leaving the top of the atmosphere in July 2018. Deserts and the tropics radiate more; Antarctica radiates less."
+      }
+    },
+    "moon": {
+      "temperature": {
+        "available": true,
+        "title": "Regolith temperature variation",
+        "source": "LRO Diviner average, PDS browse dgdr_st_avg",
+        "low": "smaller variation",
+        "high": "larger variation",
+        "note": "Diviner average regolith temperature variation from 60\u00b0S to 60\u00b0N. The poles are outside this browse image, so they are left dark."
+      },
+      "ice-water": {
+        "available": false,
+        "note": "There is no separate global ice map in this set. Water ice can persist in the coldest polar shadows, and those latitudes are outside the Diviner browse image."
+      },
+      "geology": {
+        "available": true,
+        "title": "Rock abundance",
+        "source": "LRO Diviner average rock abundance, PDS browse dgdr_ra_avg",
+        "low": "fewer rocks",
+        "high": "more rocks",
+        "note": "Fraction of the surface covered by exposed rock, from 60\u00b0S to 60\u00b0N. Fresh craters show up as small bright spots. The poles are outside this browse image."
+      },
+      "weather": {
+        "available": false,
+        "note": "The Moon has no atmosphere, so it has no weather."
+      },
+      "light": {
+        "available": true,
+        "title": "Reflected sunlight",
+        "source": "USGS / LRO WAC global mosaic",
+        "low": "darker maria",
+        "high": "brighter highlands",
+        "note": "Lunar Reconnaissance Orbiter Wide Angle Camera mosaic. The dark maria are basaltic lava; the highlands are brighter."
+      },
+      "radiation": {
+        "available": false,
+        "note": "No global surface radiation-dose map is included. The Moon has no global magnetic field, so cosmic rays reach the surface almost everywhere."
+      }
+    },
+    "mars": {
+      "temperature": {
+        "available": true,
+        "title": "Nighttime infrared",
+        "source": "USGS / Mars Odyssey THEMIS IR night mosaic",
+        "low": "cooler at night",
+        "high": "warmer at night",
+        "note": "THEMIS nighttime infrared. Rock stays warmer after sunset than dust does. The polar regions are not in this mosaic, so they are left dark."
+      },
+      "ice-water": {
+        "available": true,
+        "title": "Frost and ice",
+        "source": "MGS TES bolometric albedo, Christensen 2001",
+        "low": "bare ground",
+        "high": "frost or ice",
+        "note": "TES bolometric albedo of 0.28 or higher, kept only poleward of 65\u00b0. That leaves the polar caps and leaves out the bright tropical dust. Bare ground is dark."
+      },
+      "geology": {
+        "available": true,
+        "title": "Thermal inertia",
+        "source": "MGS TES thermal inertia, Mellon et al., 60\u00b0N to 50\u00b0S",
+        "low": "dust",
+        "high": "rock or crust",
+        "note": "How quickly the ground takes up and releases heat, in J per square metre per kelvin per square-root second. Dust is low; rock and duricrust are high. The far north and south are outside this map."
+      },
+      "weather": {
+        "available": false,
+        "note": "No global daily weather image is included. Dust storms are the main weather on Mars."
+      },
+      "light": {
+        "available": true,
+        "title": "Viking color mosaic",
+        "source": "USGS / Viking MDIM 2.1 color mosaic",
+        "low": "darker surface",
+        "high": "brighter surface",
+        "note": "Viking orbiter color mosaic. The bright spots at the poles are ice. Hellas is the bright basin in the south."
+      },
+      "radiation": {
+        "available": false,
+        "note": "No global surface radiation-dose map is included. Mars Odyssey and Curiosity measured radiation along their paths, not as a full-planet map."
+      }
+    }
+  }
+}

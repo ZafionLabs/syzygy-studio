@@ -31,7 +31,7 @@
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
   .panel h2 { margin: 0 0 8px; font-size: 15px; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
   .panel h2 small { color: var(--muted); font-weight: 400; font-size: 12px; }
-  .mapwrap { position: relative; width: 100%; cursor: crosshair; user-select: none; border-radius: 6px; overflow: hidden; background: #000; }
+  .mapwrap { position: relative; width: 100%; min-height: 220px; cursor: crosshair; user-select: none; border-radius: 6px; overflow: hidden; background: #000; }
   .mapwrap img { display: block; width: 100%; height: auto; image-rendering: pixelated; }
   .marker { position: absolute; transform: translate(-50%, -50%); width: 20px; height: 20px; border-radius: 50%; border: 2px solid #fff;
             background: var(--accent); color: #04111f; font-size: 11px; font-weight: 700; display: grid; place-items: center; cursor: pointer; box-shadow: 0 0 0 2px rgba(0,0,0,.45); }
@@ -64,6 +64,8 @@
   .metric { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 13px; margin: 6px 0 12px; }
   .metric span:nth-child(odd) { color: var(--muted); }
   .good { color: var(--ok); } .bad { color: var(--hi); }
+  .unavailable { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; color: var(--muted); background: #0c1018; }
+  #layerNote { flex: 1; min-width: 240px; margin: 0; }
 
 .searches { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .searches button { text-align: left; }

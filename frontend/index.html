@@ -12,7 +12,8 @@
   <p>Find closest match by clicking the Moon or Mars. Compare two bodies by clicking either map. Earth's underwater sea floor counts too.
      By default it uses real measured elevations: NOAA ETOPO1 for Earth (including the ocean floor), NASA LRO LOLA for the Moon, and NASA MGS MOLA for Mars.
      You can switch to your images, scaled from each body's real lowest point to its highest: Challenger Deep (−10,935 m) to Everest (+8,849 m) on Earth, Point Trieste (−9,129 m) to the Selenean summit (+10,786 m) on the Moon, and Badwater crater in Hellas (−8,201 m) to Olympus Mons (+21,229 m) on Mars.
-     Or use the images with a brightness curve fitted to the real data.</p>
+     Or use the images with a brightness curve fitted to the real data.
+     The map buttons add temperature, ice and water, geology, weather, light, and radiation. A click still searches by elevation.</p>
 </header>
 
 <div class="toolbar">
@@ -43,24 +44,28 @@
   <span class="sep"></span>
   <span id="lmButtons" style="display:contents"></span>
 </div>
+<div class="toolbar">
+  <div class="toggle" id="layerPick" role="group" aria-label="Map layer"></div>
+  <span id="layerNote" class="note"></span>
+</div>
 
 <main>
   <div class="maps" id="maps">
     <section class="panel" id="slotA">
       <h2><span id="titleA"></span> <small id="rangeA"></small></h2>
-      <div class="mapwrap" id="map-A"><img alt="elevation map"></div>
+      <div class="mapwrap" id="map-A"><img alt="map"><div class="unavailable" hidden></div></div>
       <div class="legend"><span id="minA"></span><span class="bar" id="barA"></span><span id="maxA"></span></div>
       <div class="hover" id="hover-A"></div>
     </section>
     <section class="panel" id="slotB">
       <h2><span id="titleB"></span> <small id="rangeB"></small></h2>
-      <div class="mapwrap" id="map-B"><img alt="elevation map"></div>
+      <div class="mapwrap" id="map-B"><img alt="map"><div class="unavailable" hidden></div></div>
       <div class="legend"><span id="minB"></span><span class="bar" id="barB"></span><span id="maxB"></span></div>
       <div class="hover" id="hover-B"></div>
     </section>
     <section class="panel" id="slotC">
       <h2><span id="titleC"></span> <small id="rangeC"></small></h2>
-      <div class="mapwrap" id="map-C"><img alt="elevation map"></div>
+      <div class="mapwrap" id="map-C"><img alt="map"><div class="unavailable" hidden></div></div>
       <div class="legend"><span id="minC"></span><span class="bar" id="barC"></span><span id="maxC"></span></div>
       <div class="hover" id="hover-C"></div>
     </section>

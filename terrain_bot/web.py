@@ -17,6 +17,7 @@ from .dem import compare_to_dem
 from .features import compute_features
 from .explain import describe_surface, explain_query, explain_top, feature_label, feature_unit
 from .heightmap import Heightmap
+from .layers import catalog, layer_png
 from .matcher import MODES, SURFACES, Match, MatchConfig, SitePoint, TerrainMatcher
 from .report import calibration_check
 
@@ -234,6 +235,11 @@ def make_handler(app: TerrainApp):
                     self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
                 elif path == "/favicon.ico":
                     self._send(204, b"", "image/x-icon", cache=True)
+                elif path == "/api/layers":
+                    self._json(200, catalog())
+                elif path.startswith("/map/layer/") and path.endswith(".png"):
+                    body, layer = path[len("/map/layer/"):-4].split("/")
+                    self._send(200, layer_png(body, layer), "image/png", cache=True)
                 elif path.startswith("/map/") and path.endswith(".png"):
                     parts = path[len("/map/"):-4].split("/")
                     src, body = (parts if len(parts) == 2 else (app.default_source, parts[0]))
