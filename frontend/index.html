@@ -13,7 +13,7 @@
      By default it uses real measured elevations: NOAA ETOPO1 for Earth (including the ocean floor), NASA LRO LOLA for the Moon, and NASA MGS MOLA for Mars.
      You can switch to your images, scaled from each body's real lowest point to its highest: Challenger Deep (−10,935 m) to Everest (+8,849 m) on Earth, Point Trieste (−9,129 m) to the Selenean summit (+10,786 m) on the Moon, and Badwater crater in Hellas (−8,201 m) to Olympus Mons (+21,229 m) on Mars.
      Or use the images with a brightness curve fitted to the real data.
-     The map buttons add temperature, ice and water, geology, weather, light, and radiation. Turn on more than one at a time. The percentage is how much of that map is mixed into the picture. Hover a selected point or a found match to see its name, a picture of the spot, the number-one match, the Moon place, and the match percentage. A click still searches by elevation.</p>
+     The map buttons add temperature, ice and water, geology, weather, light, and radiation. Turn on more than one at a time. The percentage is how much of that map is mixed into the picture. Hover a selected point or a found match to see its name. The match is shown under the maps, with the old place cards: the name, the description, and pictures of both places, plus the match percentage. A click still searches by elevation.</p>
 </header>
 
 <div class="toolbar">
@@ -71,6 +71,15 @@
     </section>
   </div>
 
+  <section class="panel" id="twinPanel" hidden>
+    <h2>Side by side <small id="twinSub"></small></h2>
+    <div class="twin">
+      <div><div class="role" id="twinRoleA">Your point</div><div class="placecard inline" id="twinA"></div></div>
+      <div class="vs"><div class="big" id="twinSim"></div><div id="twinDiff"></div></div>
+      <div><div class="role" id="twinRoleB">Closest match</div><div class="placecard inline" id="twinB"></div></div>
+    </div>
+  </section>
+
   <section class="panel">
     <h2>Results <small>similarity = 100 × exp(−distance); click a row to see why it matched</small></h2>
     <div class="status" id="status">Loading…</div>
@@ -108,10 +117,7 @@
     </section>
   </div>
 </main>
-<div id="spotcard" hidden>
-  <div class="spot-head"><b id="spotName"></b><span id="spotPct" class="sim"></span></div>
-  <div class="spot-pics" id="spotPics"></div>
-</div>
+<div id="placecard" hidden><h3 id="spotName"></h3></div>
 <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

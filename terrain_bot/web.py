@@ -19,6 +19,7 @@ from .explain import describe_surface, explain_query, explain_top, feature_label
 from .heightmap import Heightmap
 from .layers import catalog, layer_png
 from .matcher import MODES, SURFACES, Match, MatchConfig, SitePoint, TerrainMatcher
+from .places import PlaceFinder, orbital_view
 from .report import calibration_check
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -86,9 +87,10 @@ def render_map_png(hm: Heightmap, cmap_name: str) -> bytes:
 class TerrainApp:
     """Serves one or more data sources; matchers and global results are built lazily and cached."""
 
-    def __init__(self, datasets: dict[str, dict[str, Heightmap]], config: MatchConfig, default_source: str):
+    def __init__(self, datasets: dict[str, dict[str, Heightmap]], config: MatchConfig, default_source: str, online: bool = True):
         self.datasets = {k: datasets[k] for k in sorted(datasets, key=lambda k: SOURCE_ORDER.index(k) if k in SOURCE_ORDER else 99)}
         self._features: dict[tuple[str, str], object] = {}
+        self.places = PlaceFinder(online=online)
         self.base_config = config
         self.default_source = default_source
         self._matchers: dict[tuple[str, str], TerrainMatcher] = {}
@@ -171,6 +173,21 @@ class TerrainApp:
             raise ValueError(f"unknown map {source}/{body}")
         return self._pngs[key]
 
+    def place(self, body: str, lat: float, lon: float, source: str | None = None) -> dict:
+        """Name, description and pictures of the place at a coordinate."""
+        body = body.lower()
+        hm = self.datasets.get("dem", {}).get(body) or self.datasets[self._source(source)].get(body)
+        if hm is None:
+            raise ValueError(f"unknown body {body!r}")
+        r, c = hm.pixel_of(lat, lon)
+        elev = float(hm.elevation[r, c])
+        return self.places.describe(body, lat, lon, elev if np.isfinite(elev) else None, pixel_km=hm.km_per_px[0])
+
+    def place_image(self, body: str, lat: float, lon: float, half_km: float) -> bytes:
+        if body not in ("earth", "moon", "mars"):
+            raise ValueError(f"unknown body {body!r}")
+        return orbital_view(body, round(lat, 3), round(lon, 3), float(np.clip(half_km, 20, 1500)))
+
     def height(self, body: str, lat: float, lon: float, source: str | None = None) -> dict:
         hm = self.datasets[self._source(source)].get(body)
         if hm is None:
@@ -248,6 +265,11 @@ def make_handler(app: TerrainApp):
                     self._json(200, app.info())
                 elif path == "/api/height":
                     self._json(200, app.height(q["body"], float(q["lat"]), float(q["lon"]), source))
+                elif path == "/api/place":
+                    self._json(200, app.place(q["body"], float(q["lat"]), float(q["lon"]), source))
+                elif path == "/api/place-image":
+                    img = app.place_image(q["body"], float(q["lat"]), float(q["lon"]), float(q.get("km", 150)))
+                    self._send(200, img, "image/jpeg", cache=True)
                 elif path == "/api/query":
                     k = min(int(q.get("k", 5)), 25)
                     self._json(200, app.query(q["body"], float(q["lat"]), float(q["lon"]), k, mode, source, surface,

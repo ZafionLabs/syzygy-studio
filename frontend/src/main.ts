@@ -234,113 +234,126 @@ function placeName(site: Site) {
   return named ? placeLabel(named) : fmtLL(site.lat, site.lon);
 }
 
-function sameSpot(a: Site, b: Site) {
-  return a.body === b.body && Math.abs(a.lat - b.lat) < 0.05 && Math.abs(((a.lon - b.lon + 540) % 360) - 180) < 0.05;
-}
+type PlaceInfo = {
+  name: string;
+  body: string;
+  lat: number;
+  lon: number;
+  description?: string | null;
+  context?: string | null;
+  origin?: string | null;
+  wiki?: { url?: string; title?: string; summary?: string } | null;
+  photo?: string | null;
+  gazetteer_url?: string | null;
+  view_url?: string;
+  view_credit?: string;
+  source?: string | null;
+  diameter_km?: number | null;
+};
+
+const placeCache = new Map<string, Promise<PlaceInfo>>();
+let twinToken = 0;
 
 function hideCard() {
   cardToken += 1;
-  $<HTMLElement>("#spotcard").hidden = true;
+  $<HTMLElement>("#placecard").hidden = true;
 }
 
 function moveCard(ev: MouseEvent) {
-  const card = $<HTMLElement>("#spotcard");
-  const width = card.offsetWidth || 440;
-  const height = Math.max(card.offsetHeight || 0, 250);
-  const below = ev.clientY + 18;
-  const above = ev.clientY - height - 18;
-  const top = below + height > window.innerHeight - 8 ? Math.max(8, above) : below;
-  let left = ev.clientX + 16;
-  if (left + width > window.innerWidth - 8) left = Math.max(8, ev.clientX - width - 16);
+  const card = $<HTMLElement>("#placecard");
+  const width = card.offsetWidth || 120;
+  const height = card.offsetHeight || 32;
+  let left = ev.clientX + 12;
+  let top = ev.clientY + 14;
+  if (left + width > window.innerWidth - 8) left = Math.max(8, ev.clientX - width - 12);
+  if (top + height > window.innerHeight - 8) top = Math.max(8, ev.clientY - height - 12);
   card.style.left = `${left}px`;
   card.style.top = `${top}px`;
 }
 
-async function paintSpot(canvas: HTMLCanvasElement, site: Site) {
-  const img = await loadMap(`/map/layer/${bodyKey(site.body)}/light.png?v=4`);
-  const size = 180;
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  const info = bodies()[bodyKey(site.body)];
-  const fx = (site.lon - info.lon_range[0]) / (info.lon_range[1] - info.lon_range[0]);
-  const fy = (info.lat_range[1] - site.lat) / (info.lat_range[1] - info.lat_range[0]);
-  const sw = (10 / 360) * img.naturalWidth;
-  const sh = (10 / 180) * img.naturalHeight;
-  const sx = fx * img.naturalWidth - sw / 2;
-  const sy = Math.min(Math.max(0, fy * img.naturalHeight - sh / 2), Math.max(0, img.naturalHeight - sh));
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, size, size);
-  const span = ((sx % img.naturalWidth) + img.naturalWidth) % img.naturalWidth;
-  const draw = () => {
-    if (span + sw <= img.naturalWidth) ctx.drawImage(img, span, sy, sw, sh, 0, 0, size, size);
-    else {
-      const leftW = img.naturalWidth - span;
-      ctx.drawImage(img, span, sy, leftW, sh, 0, 0, size * (leftW / sw), size);
-      ctx.drawImage(img, 0, sy, sw - leftW, sh, size * (leftW / sw), 0, size * ((sw - leftW) / sw), size);
+function viewKm(p: PlaceInfo) {
+  if (p.diameter_km) return Math.min(800, Math.max(60, p.diameter_km * 0.8));
+  return 150;
+}
+
+function renderPlace(p: PlaceInfo, label: string | undefined, elevation: number | undefined) {
+  const coords = fmtLL(p.lat, p.lon);
+  const wiki = p.wiki;
+  const links = [
+    wiki && wiki.url ? `<a href="${esc(wiki.url)}" target="_blank" rel="noopener">Wikipedia</a>` : "",
+    p.gazetteer_url ? `<a href="${esc(p.gazetteer_url)}" target="_blank" rel="noopener">IAU gazetteer</a>` : "",
+  ].filter(Boolean).join(" · ");
+  const photo = p.photo ? `<figure><img src="${esc(p.photo)}" alt="Photo of ${esc(p.name)}">
+      <figcaption>Photo: ${esc(wiki?.title || p.name)} (Wikimedia)</figcaption></figure>` : "";
+  const view = p.view_url ? `<figure><img src="${esc(p.view_url)}&km=${viewKm(p).toFixed(0)}" alt="Orbital view of ${esc(p.name)}">
+      <figcaption>Exact spot (red cross): ${esc(p.view_credit || "")}</figcaption></figure>` : "";
+  return `<h3>${esc(p.name)}</h3>
+    <div class="sub">${esc(p.body)} · ${coords}${elevation != null ? ` · ${fmtM(elevation)}` : ""}${label && label !== p.name ? ` · ${esc(label)}` : ""}</div>
+    ${p.description ? `<div class="desc">${esc(p.description)}${p.context ? `, ${esc(p.context)}` : ""}</div>` : ""}
+    ${wiki?.summary ? `<div class="summary">${esc(wiki.summary)}</div>` : p.origin ? `<div class="summary">Named after: ${esc(p.origin)}</div>` : ""}
+    <div class="pics">${photo}${view}</div>
+    ${links ? `<div class="sub" style="margin-top:6px">${links}${p.source ? ` · names: ${esc(p.source)}` : ""}</div>` : p.source ? `<div class="sub" style="margin-top:6px">names: ${esc(p.source)}</div>` : ""}`;
+}
+
+function placeFor(body: string, lat: number, lon: number) {
+  const key = `${body}:${lat.toFixed(3)}:${lon.toFixed(3)}`;
+  let pending = placeCache.get(key);
+  if (!pending) {
+    pending = api<PlaceInfo>(`/api/place?body=${body}&lat=${lat}&lon=${lon}&source=${source()}`).catch((error) => {
+      placeCache.delete(key);
+      throw error;
+    });
+    placeCache.set(key, pending);
+  }
+  return pending;
+}
+
+function showTwin(m: Match | null) {
+  const panel = $<HTMLElement>("#twinPanel");
+  if (!m) {
+    panel.hidden = true;
+    return;
+  }
+  const token = ++twinToken;
+  panel.hidden = false;
+  $("#twinRoleA").textContent = `Your point on ${m.a.body}`;
+  $("#twinRoleB").textContent = `Match on ${m.b.body}`;
+  $("#twinSub").textContent = `match #${m.rank}`;
+  $("#twinSim").textContent = `${m.similarity.toFixed(1)}%`;
+  $("#twinDiff").textContent = `height difference ${m.elevation_difference_m >= 0 ? "+" : ""}${fmtM(m.elevation_difference_m)}`;
+  const loading = (p: Site) => `<h3>Looking up this place…</h3><div class="sub">${esc(p.body)} · ${fmtLL(p.lat, p.lon)}</div>`;
+  const left = $<HTMLElement>("#twinA");
+  const right = $<HTMLElement>("#twinB");
+  left.innerHTML = loading(m.a);
+  right.innerHTML = loading(m.b);
+  const fill = async (el: HTMLElement, site: Site) => {
+    try {
+      const found = await placeFor(bodyKey(site.body), site.lat, site.lon);
+      if (token === twinToken) el.innerHTML = renderPlace(found, placeName(site), site.features.elevation_m);
+    } catch (error) {
+      if (token === twinToken) el.innerHTML = `<h3>${fmtLL(site.lat, site.lon)}</h3><div class="err">${esc(error instanceof Error ? error.message : "lookup failed")}</div>`;
     }
   };
-  draw();
-  const sample = ctx.getImageData(0, 0, size, size);
-  let total = 0;
-  let peak = 1;
-  for (let i = 0; i < sample.data.length; i += 4) {
-    total += sample.data[i] + sample.data[i + 1] + sample.data[i + 2];
-    peak = Math.max(peak, sample.data[i], sample.data[i + 1], sample.data[i + 2]);
-  }
-  if (total / (sample.data.length / 4) / 3 < 40) {
-    const scale = Math.min(12, 170 / peak);
-    for (let i = 0; i < sample.data.length; i += 4) {
-      sample.data[i] = Math.min(255, sample.data[i] * scale);
-      sample.data[i + 1] = Math.min(255, sample.data[i + 1] * scale);
-      sample.data[i + 2] = Math.min(255, sample.data[i + 2] * scale);
-    }
-    ctx.putImageData(sample, 0, 0);
-  }
+  void fill(left, m.a);
+  void fill(right, m.b);
 }
 
 function watchSpot(el: HTMLElement, site: Site, match: Match | null) {
-  el.addEventListener("mouseenter", (ev) => { void openCard(ev, site, match); });
+  el.addEventListener("mouseenter", (ev) => openCard(ev, site, match));
   el.addEventListener("mousemove", (ev) => moveCard(ev));
   el.addEventListener("mouseleave", () => hideCard());
 }
 
-async function openCard(ev: MouseEvent, site: Site, match: Match | null) {
+function openCard(ev: MouseEvent, site: Site, match: Match | null) {
   const token = ++cardToken;
-  const best = shownMatches.matches[0] ?? null;
-  const origin = shownMatches.origin;
-  const moon = [site, origin, match?.a, match?.b, best?.a, best?.b].find((item): item is Site => Boolean(item && item.body === "Moon"));
-  const numberOne = best ? best.b : null;
-  const pictures: { label: string; site: Site }[] = [{ label: site.body === "Moon" ? "Moon place" : "This spot", site }];
-  if (numberOne && !sameSpot(numberOne, site)) {
-    pictures.push({ label: `#1 match ${best!.similarity.toFixed(1)}%`, site: numberOne });
-  } else if (numberOne) {
-    pictures[0] = { label: `This spot · #1 match`, site };
-  }
-  const third = moon && !pictures.some((item) => sameSpot(item.site, moon)) ? moon : (!moon && origin && !pictures.some((item) => sameSpot(item.site, origin)) ? origin : null);
-  if (third) pictures.push({ label: third.body === "Moon" ? "Moon place" : `${third.body} place`, site: third });
-  const card = $<HTMLElement>("#spotcard");
+  const card = $<HTMLElement>("#placecard");
   $("#spotName").textContent = placeName(site);
-  const percent = match?.similarity ?? best?.similarity;
-  $("#spotPct").textContent = percent != null ? `${percent.toFixed(1)}% match` : "";
-  const pics = $("#spotPics");
-  pics.innerHTML = "";
-  const canvases: HTMLCanvasElement[] = [];
-  for (const picture of pictures) {
-    const figure = document.createElement("figure");
-    const canvas = document.createElement("canvas");
-    const caption = document.createElement("figcaption");
-    caption.textContent = `${picture.label} · ${placeName(picture.site)}`;
-    figure.append(canvas, caption);
-    pics.appendChild(figure);
-    canvases.push(canvas);
-  }
   card.hidden = false;
   moveCard(ev);
-  await Promise.all(pictures.map((picture, index) => paintSpot(canvases[index], picture.site)));
-  if (token !== cardToken) return;
-  moveCard(ev);
+  showTwin(match ?? shownMatches.matches[0] ?? null);
+  void placeFor(bodyKey(site.body), site.lat, site.lon).then((found) => {
+    if (token === cardToken) $("#spotName").textContent = found.name;
+  }).catch(() => undefined);
 }
 
 function loadMap(url: string) {
@@ -446,7 +459,12 @@ function showResults(matches: Match[], origin: Site | null) {
   const tbody = $<HTMLTableSectionElement>("#results tbody");
   tbody.innerHTML = "";
   $<HTMLElement>("#breakdownWrap").hidden = true;
-  if (!matches.length) { $("#status").textContent = "No matches found."; $<HTMLElement>("#results").hidden = true; return; }
+  if (!matches.length) {
+    $("#status").textContent = "No matches found.";
+    $<HTMLElement>("#results").hidden = true;
+    showTwin(null);
+    return;
+  }
   $("#hA").textContent = matches[0].a.body + " location";
   $("#hB").textContent = matches[0].b.body + " location";
   if (origin) {
@@ -470,6 +488,7 @@ function showResults(matches: Match[], origin: Site | null) {
       tr.classList.add("active");
       live.forEach((mk) => mk.classList.add("active"));
       showBreakdown(m);
+      showTwin(m);
     };
     tr.addEventListener("click", activate);
     tr.addEventListener("mouseenter", (ev) => { void openCard(ev, m.b, m); });
@@ -693,7 +712,7 @@ function writeMixText() {
     ? `<p><b>Names on a selected point.</b> ${esc(PLACES.citation.earth)} ${esc(PLACES.citation.ocean)} ${esc(PLACES.citation.moon)}</p>`
     : "";
   $("#calib").innerHTML = mapHeading + elevationNotes + cited;
-  $("#layerNote").textContent = `${mixLine}. Hover a selected point or a found match for its name, pictures, and match percentage. A click still searches elevation.`;
+  $("#layerNote").textContent = `${mixLine}. Hover a point to see its name. The match is under the maps. A click still searches elevation.`;
   for (const [slot, key] of Object.entries(slots())) {
     $(`#legend${slot}`).innerHTML = legendHtml(key);
     const info = bodies()[key];

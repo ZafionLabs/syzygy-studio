@@ -296,3 +296,24 @@ def test_place_names_cover_earth_ocean_moon_and_mars():
     assert "Natural Earth" in names["citation"]["earth"]
     assert "GEBCO" in names["citation"]["ocean"]
     assert "International Astronomical Union" in names["citation"]["moon"]
+
+
+def test_old_place_cards_name_known_spots_offline():
+    from terrain_bot.places import PlaceFinder
+    from terrain_bot.web import TerrainApp
+
+    finder = PlaceFinder(online=False)
+    assert finder.describe("moon", -70.36, -172.49, pixel_km=8)["name"] == "Antoniadi crater"
+    badwater = finder.describe("mars", -32.85, 62.21, pixel_km=8)
+    assert badwater["name"] == "Badwater crater" and "Hellas" in badwater["context"]
+    trench = finder.describe("earth", 11.35, 142.2, elevation_m=-10900)
+    assert trench["name"] == "Mariana Trench"
+    assert trench["view_url"].startswith("/api/place-image?body=earth")
+
+    hm_a = heightmap_from_array(_synthetic_terrain(seed=30), EARTH)
+    hm_b = heightmap_from_array(_synthetic_terrain(seed=31), MOON)
+    app = TerrainApp({"images": {"earth": hm_a, "moon": hm_b}}, MatchConfig(), default_source="images", online=False)
+    named = app.place("moon", -70.36, -172.49)
+    assert named["body"] == "Moon" and named["name"]
+    with pytest.raises(ValueError):
+        app.place("pluto", 0, 0)
