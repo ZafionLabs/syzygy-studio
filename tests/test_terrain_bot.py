@@ -195,8 +195,11 @@ def test_real_dem_data():
     assert moon.elevation_at(5.41, -158.63) > 10000  # Selenean summit
     assert moon.elevation_at(-70.36, -172.49) < -8000  # Antoniadi crater
 
-    comparison = dem.compare_to_dem(load_heightmap(DATA / "moon_heightmap.png", MOON), moon)
-    assert comparison["spearman"] > 0.95
+    moon_cmp = dem.compare_to_dem(load_heightmap(DATA / "moon_heightmap.png", MOON), moon)
+    assert moon_cmp["spearman"] > 0.95
+    earth_cmp = dem.compare_to_dem(load_heightmap(DATA / "earth_heightmap.png", EARTH), earth)
+    assert earth_cmp["spearman"] > 0.95
+    assert earth_cmp["land_water_agreement"] > 0.9
 
 
 @pytest.mark.skipif(not dem.dem_available("mars"), reason="Mars DEM not downloaded")

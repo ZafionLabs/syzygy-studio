@@ -156,7 +156,7 @@ def fit_image_to_dem(image_hm: Heightmap, dem_hm: Heightmap) -> Heightmap:
     For every brightness level the median measured elevation of the pixels with
     that brightness is taken, then the curve is forced to rise with brightness.
     This undoes clipping and non-linear encodings, but cannot fix an image whose
-    brightness isn't height (shaded relief).
+    brightness is unrelated to height (for example shaded relief).
     """
     rows, cols = np.nonzero(image_hm.valid)
     gray = np.round(image_hm.gray[rows, cols])

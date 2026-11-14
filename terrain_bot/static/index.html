@@ -377,7 +377,7 @@ function renderValidation() {
         <span>typical error</span><span>${fmtM(c.median_abs_error_m)} median, ${fmtM(c.rmse_m)} RMS, bias ${c.bias_m >= 0 ? "+" : ""}${fmtM(c.bias_m)}</span>
         ${lw}
       </div>`;
-  }).join("") + `<p class="note">Each image is compared pixel by pixel with the measured data. The Earth image is a shaded-relief picture, so brightness isn't height. The Mars image is clipped at both ends, so everything above about +7 km (Olympus and the Tharsis volcanoes) is pure white. That breaks a straight lowest-to-highest scale, but the fitted curve handles it.</p>`;
+  }).join("") + `<p class="note">Each image is compared pixel by pixel with the measured data. Earth and Moon are faithful elevation maps (lightest = highest, darkest = lowest). The Mars image is clipped at both ends, so everything above about +7 km (Olympus and the Tharsis volcanoes) is pure white. That breaks a straight lowest-to-highest scale, but the fitted curve handles it.</p>`;
 }
 
 async function init() {

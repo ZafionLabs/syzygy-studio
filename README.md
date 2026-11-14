@@ -24,15 +24,16 @@ Each calibrated image is compared pixel by pixel with the real data at the same 
 |---|---|---|---|---|
 | Moon | **0.989** | 400 m | **125 m** | faithful elevation map |
 | Mars | **0.980** | 5,533 m | **120 m** | clipped: brightness 255 covers everything above about +7 km and 0 covers everything below about -6.4 km |
-| Earth | 0.670 | 1,517 m | 401 m | shaded relief; land/water agrees on only 72% |
+| Earth | **0.995** | 1,202 m | **54 m** | faithful elevation + bathymetry map; land/water agrees on 94% (98% after fit) |
 
 The Moon image is a faithful elevation map: its lightest pixel is 13 km from the real Selenean
 summit. The Mars image has the right geography but saturates at both ends, so Olympus Mons is as
 white as the Tharsis plains. The straight Olympus-to-Hellas scale therefore reads about 5 km too
-high, but the fitted curve fixes that except in the clipped areas, which the steps flag. The Earth image is a shaded-relief picture, so brightness isn't height. Lowlands like the
-Amazon are as dark as abyssal plains, and continental shelves are as bright as hills. No
-brightness-to-height curve can fix that, which is why measured data is the default. The image's
-bounds (84 N to 77 S) were fitted against ETOPO1 and stored in `data/earth_heightmap.json`.
+high, but the fitted curve fixes that except in the clipped areas, which the steps flag. The Earth
+image is a full-globe grayscale heightmap (lightest = highest, darkest = deepest ocean), so the
+linear Everest-to-Challenger scale already tracks ETOPO1 closely; the fitted curve brings median
+error down to about 54 m. Measured DEMs remain the default for precision at individual peaks and
+trench bottoms.
 
 ## How a match is found (shown by `query`, the chat bot's `steps`, and the web UI)
 
@@ -82,7 +83,8 @@ To share the UI temporarily, run `cloudflared tunnel --url http://localhost:8000
 
 * The quarter-degree DEM cells can't capture single peaks or trench bottoms. Everest's cell reads
   5,380 m and the Mariana cell reads -8,810 m.
-* Image calibration is linear and assumes brightness is proportional to height.
+* Image calibration is linear (or an isotonic fit for `images-fit`) and assumes brightness tracks
+  height. That holds for the bundled Earth and Moon maps; Mars saturates at the extremes.
 
 ## Tests
 
