@@ -156,21 +156,6 @@ function layerLabel(id: string) {
   return LAYERS?.layers.find((item) => item.id === id)?.label || id;
 }
 
-function displayPercents(ids: string[]) {
-  if (!ids.length) return {};
-  const raw = ids.map((id) => shares[id] ?? 0);
-  const sum = raw.reduce((total, value) => total + value, 0) || 1;
-  const shown = raw.map((value) => Math.floor((value / sum) * 100));
-  let left = 100 - shown.reduce((total, value) => total + value, 0);
-  const order = raw
-    .map((value, index) => ({ index, frac: (value / sum) * 100 - shown[index] }))
-    .sort((a, b) => b.frac - a.frac);
-  for (let extra = 0; extra < left; extra += 1) shown[order[extra % order.length].index] += 1;
-  const out: Record<string, number> = {};
-  ids.forEach((id, index) => { out[id] = shown[index]; });
-  return out;
-}
-
 function usableLayers(key: string) {
   return activeIds().filter((id) => id === "elevation" || LAYERS?.bodies[key]?.[id]?.available !== false);
 }
@@ -752,17 +737,16 @@ function writeMixText() {
         `The map's ${k} point is ${Math.round(e.map_pixel_offset_km).toLocaleString()} km away.</p>`;
     }).join("");
   }).join("");
-  const percents = displayPercents(activeIds());
   const shown = activeIds().filter((id) => id !== "elevation").map((id) => Object.values(slots()).map((key) => {
     const item = LAYERS?.bodies[key]?.[id];
     if (!item) return "";
     const name = bodies()[key].name;
-    if (!item.available) return `<p><b>${esc(name)} — ${esc(layerLabel(id))} ${percents[id]}%.</b> ${esc(item.note)}</p>`;
-    return `<p><b>${esc(name)} — ${esc(item.title || "")} ${percents[id]}%.</b> ${esc(item.source || "")}</p>` +
+    if (!item.available) return `<p><b>${esc(name)} — ${esc(layerLabel(id))}.</b> ${esc(item.note)}</p>`;
+    return `<p><b>${esc(name)} — ${esc(item.title || "")}.</b> ${esc(item.source || "")}</p>` +
       `<p>${esc(item.note)}</p>` +
       (item.citation ? `<p>${esc(item.citation)}</p>` : "");
   }).join("")).join("");
-  const mixLine = activeIds().map((id) => `${layerLabel(id)} ${percents[id]}%`).join(", ");
+  const mixLine = activeIds().map((id) => layerLabel(id)).join(", ");
   const mapHeading = `<p><b>These maps.</b> ${esc(mixLine)}. Each selected map is drawn on its own, one under the other. A click still searches the elevation data.</p>${shown}`;
   const cited = PLACES
     ? `<p><b>Names on a selected point.</b> ${esc(PLACES.citation.earth)} ${esc(PLACES.citation.ocean)} ${esc(PLACES.citation.moon)}</p>`
@@ -773,7 +757,7 @@ function writeMixText() {
     syncFrames(slot, key);
     const info = bodies()[key];
     $(`#range${slot}`).textContent = usableLayers(key).length
-      ? activeIds().map((id) => `${percents[id]}% ${id === "elevation" ? info.source_name : (LAYERS?.bodies[key]?.[id]?.title || layerLabel(id))}`).join(" · ")
+      ? activeIds().map((id) => (id === "elevation" ? info.source_name : (LAYERS?.bodies[key]?.[id]?.title || layerLabel(id)))).join(" · ")
       : "";
   }
   schedulePaint();
@@ -785,26 +769,21 @@ function legendHtml(key: string) {
 
 function legendOne(key: string, id: string) {
   const b = bodies()[key];
-  const percents = displayPercents(activeIds());
-  return [id].map((id) => {
-    const percent = `${percents[id]}%`;
-    if (id === "elevation") {
-      return `<div class="legend-row"><span class="pct">${percent}</span><span class="name">Elevation</span><span class="bar" style="background:${GRADIENTS[key] || GRADIENTS.moon}"></span><span>${esc(fmtM(b.color_min_m))}</span><span>${esc(fmtM(b.color_max_m))}</span></div>`;
-    }
-    const item = LAYERS?.bodies[key]?.[id];
-    if (!item?.available) {
-      return `<div class="legend-row"><span class="pct">${percent}</span><span class="name">${esc(layerLabel(id))} is not available for this body</span></div>`;
-    }
-    const ramp = RAMPS[item.ramp || ""] || GRADIENTS[key] || GRADIENTS.moon;
-    const bar = item.ramp === "photo" ? "" : `<span class="bar" style="background:${ramp}"></span><span>${esc(item.low || "")}</span><span>${esc(item.high || "")}</span>`;
-    return `<div class="legend-row"><span class="pct">${percent}</span><span class="name">${esc(item.title || layerLabel(id))}</span>${bar}</div>`;
-  }).join("");
+  if (id === "elevation") {
+    return `<div class="legend-row"><span class="name">Elevation</span><span class="bar" style="background:${GRADIENTS[key] || GRADIENTS.moon}"></span><span>${esc(fmtM(b.color_min_m))}</span><span>${esc(fmtM(b.color_max_m))}</span></div>`;
+  }
+  const item = LAYERS?.bodies[key]?.[id];
+  if (!item?.available) {
+    return `<div class="legend-row"><span class="name">${esc(layerLabel(id))} is not available for this body</span></div>`;
+  }
+  const ramp = RAMPS[item.ramp || ""] || GRADIENTS[key] || GRADIENTS.moon;
+  const bar = item.ramp === "photo" ? "" : `<span class="bar" style="background:${ramp}"></span><span>${esc(item.low || "")}</span><span>${esc(item.high || "")}</span>`;
+  return `<div class="legend-row"><span class="name">${esc(item.title || layerLabel(id))}</span>${bar}</div>`;
 }
 
 function syncFrames(slot: string, key: string) {
   const stack = $(`#map-${slot}`);
   const ids = usableLayers(key);
-  const percents = displayPercents(activeIds());
   stack.querySelectorAll<HTMLElement>(".mapframe").forEach((frame) => {
     if (!ids.includes(frame.dataset.layer || "")) frame.remove();
   });
@@ -824,7 +803,7 @@ function syncFrames(slot: string, key: string) {
     }
     const title = id === "elevation" ? "Elevation" : (LAYERS?.bodies[key]?.[id]?.title || layerLabel(id));
     const heading = frame.querySelector(".frametitle");
-    if (heading) heading.textContent = `${title} · ${percents[id] ?? 0}%`;
+    if (heading) heading.textContent = title;
     const legend = frame.querySelector(".legend");
     if (legend) legend.innerHTML = legendOne(key, id);
     stack.appendChild(frame);
@@ -927,51 +906,19 @@ function replay(row: SearchRow) {
 
 function syncMixer() {
   const ids = activeIds();
-  const percents = displayPercents(ids);
   document.querySelectorAll<HTMLElement>(".mix-item").forEach((item) => {
-    const id = item.dataset.layer || "";
-    const on = ids.includes(id);
+    const on = ids.includes(item.dataset.layer || "");
     item.classList.toggle("on", on);
     item.querySelector("button")?.setAttribute("aria-pressed", on ? "true" : "false");
-    const range = item.querySelector("input");
-    const pct = item.querySelector(".pct");
-    if (!(range instanceof HTMLInputElement) || !(pct instanceof HTMLElement)) return;
-    range.hidden = !on || ids.length < 2;
-    pct.hidden = !on;
-    if (!on) return;
-    pct.textContent = `${percents[id]}%`;
-    if (document.activeElement !== range) range.value = String(Math.min(99, Math.max(1, percents[id])));
   });
 }
 
-function setShare(id: string, percent: number) {
-  const ids = activeIds();
-  if (!ids.includes(id) || ids.length < 2) return;
-  const next = Math.min(99, Math.max(1, percent));
-  const others = ids.filter((key) => key !== id);
-  const rest = 100 - next;
-  const otherSum = others.reduce((total, key) => total + shares[key], 0);
-  if (otherSum <= 0) {
-    const each = rest / others.length;
-    others.forEach((key) => { shares[key] = each; });
-  } else {
-    others.forEach((key) => { shares[key] = (shares[key] / otherSum) * rest; });
-  }
-  shares[id] = next;
-}
-
 function toggleLayer(id: string) {
-  const ids = activeIds();
-  if (ids.includes(id)) {
-    if (ids.length === 1) return;
-    const rest = ids.filter((key) => key !== id);
-    const sum = rest.reduce((total, key) => total + shares[key], 0) || 1;
-    rest.forEach((key) => { shares[key] = (shares[key] / sum) * 100; });
+  if (shares[id]) {
+    if (activeIds().length === 1) return;
     delete shares[id];
   } else {
-    const count = ids.length + 1;
-    ids.forEach((key) => { shares[key] = (shares[key] * (count - 1)) / count; });
-    shares[id] = 100 / count;
+    shares[id] = 1;
   }
   syncMixer();
   renderPair();
@@ -989,20 +936,7 @@ async function init() {
     button.type = "button";
     button.textContent = item.label;
     button.addEventListener("click", () => toggleLayer(item.id));
-    const range = document.createElement("input");
-    range.type = "range";
-    range.min = "1";
-    range.max = "99";
-    range.value = "100";
-    range.setAttribute("aria-label", `${item.label} percentage`);
-    range.addEventListener("input", () => {
-      setShare(item.id, Number(range.value));
-      syncMixer();
-      writeMixText();
-    });
-    const pct = document.createElement("span");
-    pct.className = "pct";
-    row.append(button, range, pct);
+    row.append(button);
     pick.appendChild(row);
   }
   syncMixer();
