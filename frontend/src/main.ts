@@ -130,7 +130,55 @@ const bodies = () => {
 };
 let searchMode = "on-earth";
 let LAYERS: LayerCatalog | null = null;
-let layerId = "elevation";
+const shares: Record<string, number> = { elevation: 100 };
+const mapImages = new Map<string, Promise<HTMLImageElement>>();
+const paintGen: Record<string, number> = {};
+let paintQueued = false;
+
+function activeIds() {
+  return (LAYERS?.layers ?? []).map((item) => item.id).filter((id) => (shares[id] ?? 0) > 0);
+}
+
+function layerLabel(id: string) {
+  return LAYERS?.layers.find((item) => item.id === id)?.label || id;
+}
+
+function displayPercents(ids: string[]) {
+  if (!ids.length) return {};
+  const raw = ids.map((id) => shares[id] ?? 0);
+  const sum = raw.reduce((total, value) => total + value, 0) || 1;
+  const shown = raw.map((value) => Math.floor((value / sum) * 100));
+  let left = 100 - shown.reduce((total, value) => total + value, 0);
+  const order = raw
+    .map((value, index) => ({ index, frac: (value / sum) * 100 - shown[index] }))
+    .sort((a, b) => b.frac - a.frac);
+  for (let extra = 0; extra < left; extra += 1) shown[order[extra % order.length].index] += 1;
+  const out: Record<string, number> = {};
+  ids.forEach((id, index) => { out[id] = shown[index]; });
+  return out;
+}
+
+function usableLayers(key: string) {
+  return activeIds().filter((id) => id === "elevation" || LAYERS?.bodies[key]?.[id]?.available !== false);
+}
+
+function mapUrl(key: string, id: string) {
+  return id === "elevation" ? `/map/${source()}/${key}.png?v=4` : `/map/layer/${key}/${id}.png?v=4`;
+}
+
+function loadMap(url: string) {
+  let pending = mapImages.get(url);
+  if (!pending) {
+    pending = new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error(url));
+      img.src = url;
+    });
+    mapImages.set(url, pending);
+  }
+  return pending;
+}
 const earthMode = () => searchMode === "on-earth" && Boolean(bodies().earth) && Object.keys(bodies()).some((k) => k !== "earth");
 const slots = () => {
   if (!earthMode()) return { A: val("#bodyA"), B: val("#bodyB") } as Record<string, string>;
@@ -316,7 +364,6 @@ function wireMap(slot: string) {
   wrap.addEventListener("click", (ev) => {
     const body = slots()[slot];
     if (!body || (earthMode() && body === "earth")) return;
-    if (layerId !== "elevation" && LAYERS?.bodies[body]?.[layerId]?.available === false) return;
     const { lat, lon } = toLatLon(body, ev);
     void runQuery(body, lat.toFixed(3), lon.toFixed(3));
   });
@@ -347,7 +394,6 @@ function applyChrome() {
 }
 
 function renderPair() {
-  const src = source();
   applyChrome();
   clearMarkers(true);
   for (const [slot, key] of Object.entries(slots())) {
@@ -355,28 +401,13 @@ function renderPair() {
     const panel = $<HTMLElement>(`#slot${slot}`);
     panel.hidden = false;
     panel.classList.toggle("earth-result", earthMode() && key === "earth");
-    const thematic = layerId === "elevation" ? undefined : LAYERS?.bodies[key]?.[layerId];
-    const missing = Boolean(thematic && !thematic.available);
+    const drawable = usableLayers(key);
+    const missing = drawable.length === 0;
     $(`#map-${slot}`).style.cursor = missing || (earthMode() && key === "earth") ? "default" : "crosshair";
-    const img = $<HTMLImageElement>(`#map-${slot} img`);
-    img.hidden = missing;
     const unavailable = $<HTMLElement>(`#map-${slot} .unavailable`);
     unavailable.hidden = !missing;
-    unavailable.textContent = thematic?.note || "";
-    if (!missing) img.src = layerId === "elevation" ? `/map/${src}/${key}.png?v=4` : `/map/layer/${key}/${layerId}.png?v=4`;
+    unavailable.textContent = missing ? "None of the selected maps are available for this body." : "";
     $(`#title${slot}`).textContent = b.name;
-    $(`#min${slot}`).textContent = missing ? "" : thematic?.available ? (thematic.low || "") : fmtM(b.color_min_m);
-    $(`#max${slot}`).textContent = missing ? "" : thematic?.available ? (thematic.high || "") : fmtM(b.color_max_m);
-    $(`#bar${slot}`).style.background = missing
-      ? "transparent"
-      : thematic?.available
-        ? (RAMPS[thematic.ramp || ""] || GRADIENTS[key])
-        : (GRADIENTS[key] || GRADIENTS.moon);
-    $(`#range${slot}`).textContent = missing
-      ? ""
-      : thematic?.available
-        ? `${thematic.title} · ${thematic.source}`
-        : `${b.source_name} · ${b.width}×${b.height} px · ~${Math.round(b.pixel_km)} km per pixel`;
     $(`#hover-${slot}`).textContent = earthMode()
       ? (key === "earth" ? "Closest places on Earth show up here." : "Hover to read elevation. Click to find the closest places on Earth.")
       : `Hover to read elevation. Click to search ${bodies()[otherOf(key)].name}.`;
@@ -393,6 +424,10 @@ function renderPair() {
       $("#lmButtons").appendChild(btn);
     }
   }
+  writeMixText();
+}
+
+function writeMixText() {
   const elevationNotes = Object.values(slots()).map((key) => {
     const b = bodies()[key], c = b.calibration;
     return `<p><b>${esc(b.name)} elevation.</b> ${esc(b.source_name)}</p>` + ["highest", "lowest"].map((k) => {
@@ -401,26 +436,104 @@ function renderPair() {
         `The map's ${k} point is ${Math.round(e.map_pixel_offset_km).toLocaleString()} km away.</p>`;
     }).join("");
   }).join("");
-  const shown = Object.values(slots()).map((key) => {
-    const item = LAYERS?.bodies[key]?.[layerId];
-    if (layerId === "elevation" || !item) return "";
+  const percents = displayPercents(activeIds());
+  const shown = activeIds().filter((id) => id !== "elevation").map((id) => Object.values(slots()).map((key) => {
+    const item = LAYERS?.bodies[key]?.[id];
+    if (!item) return "";
     const name = bodies()[key].name;
-    if (!item.available) return `<p><b>${esc(name)}.</b> ${esc(item.note)}</p>`;
-    return `<p><b>${esc(name)} — ${esc(item.title || "")}.</b> ${esc(item.source || "")}</p>` +
+    if (!item.available) return `<p><b>${esc(name)} — ${esc(layerLabel(id))} ${percents[id]}%.</b> ${esc(item.note)}</p>`;
+    return `<p><b>${esc(name)} — ${esc(item.title || "")} ${percents[id]}%.</b> ${esc(item.source || "")}</p>` +
       `<p>${esc(item.note)}</p>` +
       (item.citation ? `<p>${esc(item.citation)}</p>` : "");
-  }).join("");
-  const mapHeading = layerId === "elevation"
-    ? ""
-    : `<p><b>This map.</b> A click still searches the elevation data below.</p>${shown}`;
+  }).join("")).join("");
+  const mixLine = activeIds().map((id) => `${layerLabel(id)} ${percents[id]}%`).join(", ");
+  const mapHeading = `<p><b>This mix.</b> ${esc(mixLine)}. A click still searches the elevation data below.</p>${shown}`;
   $("#calib").innerHTML = mapHeading + elevationNotes;
-  const note = $("#layerNote");
-  if (layerId === "elevation") {
-    note.textContent = "Elevation. Lightest is highest and darkest is lowest. A click still searches this terrain on every map.";
-  } else {
-    const shown = Object.values(slots()).map((key) => LAYERS?.bodies[key]?.[layerId]).filter((item): item is LayerInfo => Boolean(item));
-    note.textContent = shown.find((item) => item.available)?.note || shown[0]?.note || "";
+  $("#layerNote").textContent = `${mixLine}. A click still searches elevation.`;
+  for (const [slot, key] of Object.entries(slots())) {
+    $(`#legend${slot}`).innerHTML = legendHtml(key);
+    const info = bodies()[key];
+    $(`#range${slot}`).textContent = usableLayers(key).length
+      ? activeIds().map((id) => `${percents[id]}% ${id === "elevation" ? info.source_name : (LAYERS?.bodies[key]?.[id]?.title || layerLabel(id))}`).join(" · ")
+      : "";
   }
+  schedulePaint();
+}
+
+function legendHtml(key: string) {
+  const b = bodies()[key];
+  const ids = activeIds();
+  const percents = displayPercents(ids);
+  return ids.map((id) => {
+    const percent = `${percents[id]}%`;
+    if (id === "elevation") {
+      return `<div class="legend-row"><span class="pct">${percent}</span><span class="name">Elevation</span><span class="bar" style="background:${GRADIENTS[key] || GRADIENTS.moon}"></span><span>${esc(fmtM(b.color_min_m))}</span><span>${esc(fmtM(b.color_max_m))}</span></div>`;
+    }
+    const item = LAYERS?.bodies[key]?.[id];
+    if (!item?.available) {
+      return `<div class="legend-row"><span class="pct">${percent}</span><span class="name">${esc(layerLabel(id))} is not available for this body</span></div>`;
+    }
+    const ramp = RAMPS[item.ramp || ""] || GRADIENTS[key] || GRADIENTS.moon;
+    const bar = item.ramp === "photo" ? "" : `<span class="bar" style="background:${ramp}"></span><span>${esc(item.low || "")}</span><span>${esc(item.high || "")}</span>`;
+    return `<div class="legend-row"><span class="pct">${percent}</span><span class="name">${esc(item.title || layerLabel(id))}</span>${bar}</div>`;
+  }).join("");
+}
+
+function schedulePaint() {
+  if (paintQueued) return;
+  paintQueued = true;
+  requestAnimationFrame(() => {
+    paintQueued = false;
+    for (const [slot, key] of Object.entries(slots())) void paintBlend(slot, key);
+  });
+}
+
+async function paintBlend(slot: string, key: string) {
+  const gen = (paintGen[slot] = (paintGen[slot] || 0) + 1);
+  const canvas = $<HTMLCanvasElement>(`#map-${slot} canvas`);
+  const ids = usableLayers(key);
+  if (!ids.length) {
+    canvas.hidden = true;
+    return;
+  }
+  const width = Math.max(480, Math.round(canvas.clientWidth * Math.min(window.devicePixelRatio || 1, 2)));
+  const height = Math.round(width / 2);
+  const loaded = await Promise.all(ids.map((id) => loadMap(mapUrl(key, id)).catch(() => null)));
+  if (paintGen[slot] !== gen) return;
+  const weights = ids.map((id) => shares[id] ?? 0);
+  const off = document.createElement("canvas");
+  off.width = width;
+  off.height = height;
+  const read = off.getContext("2d", { willReadFrequently: true });
+  if (!read) return;
+  const acc = new Float32Array(width * height * 3);
+  let weightSum = 0;
+  loaded.forEach((img, index) => {
+    if (!img) return;
+    const weight = weights[index];
+    read.clearRect(0, 0, width, height);
+    read.drawImage(img, 0, 0, width, height);
+    const data = read.getImageData(0, 0, width, height).data;
+    for (let pixel = 0, channel = 0; pixel < data.length; pixel += 4, channel += 3) {
+      acc[channel] += data[pixel] * weight;
+      acc[channel + 1] += data[pixel + 1] * weight;
+      acc[channel + 2] += data[pixel + 2] * weight;
+    }
+    weightSum += weight;
+  });
+  if (paintGen[slot] !== gen || weightSum <= 0) return;
+  const out = read.createImageData(width, height);
+  const scale = 1 / weightSum;
+  for (let pixel = 0, channel = 0; pixel < out.data.length; pixel += 4, channel += 3) {
+    out.data[pixel] = acc[channel] * scale;
+    out.data[pixel + 1] = acc[channel + 1] * scale;
+    out.data[pixel + 2] = acc[channel + 2] * scale;
+    out.data[pixel + 3] = 255;
+  }
+  canvas.hidden = false;
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext("2d")?.putImageData(out, 0, 0);
 }
 
 function renderValidation() {
@@ -489,13 +602,55 @@ function replay(row: SearchRow) {
   void runTop();
 }
 
-function setLayer(id: string) {
-  layerId = id;
-  document.querySelectorAll<HTMLButtonElement>("#layerPick button").forEach((button) => {
-    const on = button.dataset.layer === id;
-    button.classList.toggle("on", on);
-    button.setAttribute("aria-pressed", on ? "true" : "false");
+function syncMixer() {
+  const ids = activeIds();
+  const percents = displayPercents(ids);
+  document.querySelectorAll<HTMLElement>(".mix-item").forEach((item) => {
+    const id = item.dataset.layer || "";
+    const on = ids.includes(id);
+    item.classList.toggle("on", on);
+    item.querySelector("button")?.setAttribute("aria-pressed", on ? "true" : "false");
+    const range = item.querySelector("input");
+    const pct = item.querySelector(".pct");
+    if (!(range instanceof HTMLInputElement) || !(pct instanceof HTMLElement)) return;
+    range.hidden = !on || ids.length < 2;
+    pct.hidden = !on;
+    if (!on) return;
+    pct.textContent = `${percents[id]}%`;
+    if (document.activeElement !== range) range.value = String(Math.min(99, Math.max(1, percents[id])));
   });
+}
+
+function setShare(id: string, percent: number) {
+  const ids = activeIds();
+  if (!ids.includes(id) || ids.length < 2) return;
+  const next = Math.min(99, Math.max(1, percent));
+  const others = ids.filter((key) => key !== id);
+  const rest = 100 - next;
+  const otherSum = others.reduce((total, key) => total + shares[key], 0);
+  if (otherSum <= 0) {
+    const each = rest / others.length;
+    others.forEach((key) => { shares[key] = each; });
+  } else {
+    others.forEach((key) => { shares[key] = (shares[key] / otherSum) * rest; });
+  }
+  shares[id] = next;
+}
+
+function toggleLayer(id: string) {
+  const ids = activeIds();
+  if (ids.includes(id)) {
+    if (ids.length === 1) return;
+    const rest = ids.filter((key) => key !== id);
+    const sum = rest.reduce((total, key) => total + shares[key], 0) || 1;
+    rest.forEach((key) => { shares[key] = (shares[key] / sum) * 100; });
+    delete shares[id];
+  } else {
+    const count = ids.length + 1;
+    ids.forEach((key) => { shares[key] = (shares[key] * (count - 1)) / count; });
+    shares[id] = 100 / count;
+  }
+  syncMixer();
   renderPair();
 }
 
@@ -504,15 +659,31 @@ async function init() {
   LAYERS = await api<LayerCatalog>("/api/layers");
   const pick = $("#layerPick");
   for (const item of LAYERS.layers) {
+    const row = document.createElement("div");
+    row.className = "mix-item";
+    row.dataset.layer = item.id;
     const button = document.createElement("button");
     button.type = "button";
-    button.dataset.layer = item.id;
     button.textContent = item.label;
-    button.addEventListener("click", () => setLayer(item.id));
-    pick.appendChild(button);
+    button.addEventListener("click", () => toggleLayer(item.id));
+    const range = document.createElement("input");
+    range.type = "range";
+    range.min = "1";
+    range.max = "99";
+    range.value = "100";
+    range.setAttribute("aria-label", `${item.label} percentage`);
+    range.addEventListener("input", () => {
+      setShare(item.id, Number(range.value));
+      syncMixer();
+      writeMixText();
+    });
+    const pct = document.createElement("span");
+    pct.className = "pct";
+    row.append(button, range, pct);
+    pick.appendChild(row);
   }
-  document.querySelector<HTMLButtonElement>("#layerPick button")?.classList.add("on");
-  document.querySelector<HTMLButtonElement>("#layerPick button")?.setAttribute("aria-pressed", "true");
+  syncMixer();
+  new ResizeObserver(() => schedulePaint()).observe($("#maps"));
   const sel = $<HTMLSelectElement>("#source");
   for (const [key, s] of Object.entries(INFO.sources)) sel.add(new Option(s.label, key));
   sel.value = INFO.default_source;

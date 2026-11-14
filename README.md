@@ -60,7 +60,7 @@ dry land or sea floor.
 
 ## Other maps
 
-The web app can switch the globes from elevation to temperature, ice and water, geology, weather, light, or radiation. A click still searches by elevation. The images are in `data/layers/` and are built by `python3 scripts/build_layers.py`.
+The web app can turn on elevation, temperature, ice and water, geology, weather, light, and radiation together. Each selected map shows its percentage of the mix. A click still searches by elevation. The images are in `data/layers/` and are built by `python3 scripts/build_layers.py`.
 
 | Map | Earth | Moon | Mars |
 |---|---|---|---|
