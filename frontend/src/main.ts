@@ -141,7 +141,8 @@ let searchMode = "on-earth";
 let LAYERS: LayerCatalog | null = null;
 const shares: Record<string, number> = { elevation: 100 };
 let PLACES: Gazetteer | null = null;
-let showNames = true;
+let shownMatches: { origin: Site | null; matches: Match[] } = { origin: null, matches: [] };
+let cardToken = 0;
 const views: Record<string, { zoom: number; panX: number; panY: number }> = {};
 const mapImages = new Map<string, Promise<HTMLImageElement>>();
 const paintGen: Record<string, number> = {};
@@ -228,53 +229,118 @@ function nearestPlace(key: string, lat: number, lon: number, underwater: boolean
   return best;
 }
 
-function drawLabels(slot: string) {
-  const canvas = $<HTMLCanvasElement>(`#map-${slot} canvas.labels`);
-  const wrap = $(`#map-${slot}`);
-  const width = wrap.clientWidth;
-  const height = wrap.clientHeight;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.max(1, Math.round(width * dpr));
-  canvas.height = Math.max(1, Math.round(height * dpr));
+function placeName(site: Site) {
+  const named = nearestPlace(bodyKey(site.body), site.lat, site.lon, site.underwater);
+  return named ? placeLabel(named) : fmtLL(site.lat, site.lon);
+}
+
+function sameSpot(a: Site, b: Site) {
+  return a.body === b.body && Math.abs(a.lat - b.lat) < 0.05 && Math.abs(((a.lon - b.lon + 540) % 360) - 180) < 0.05;
+}
+
+function hideCard() {
+  cardToken += 1;
+  $<HTMLElement>("#spotcard").hidden = true;
+}
+
+function moveCard(ev: MouseEvent) {
+  const card = $<HTMLElement>("#spotcard");
+  const width = card.offsetWidth || 440;
+  const height = Math.max(card.offsetHeight || 0, 250);
+  const below = ev.clientY + 18;
+  const above = ev.clientY - height - 18;
+  const top = below + height > window.innerHeight - 8 ? Math.max(8, above) : below;
+  let left = ev.clientX + 16;
+  if (left + width > window.innerWidth - 8) left = Math.max(8, ev.clientX - width - 16);
+  card.style.left = `${left}px`;
+  card.style.top = `${top}px`;
+}
+
+async function paintSpot(canvas: HTMLCanvasElement, site: Site) {
+  const img = await loadMap(`/map/layer/${bodyKey(site.body)}/light.png?v=4`);
+  const size = 180;
+  canvas.width = size;
+  canvas.height = size;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, width, height);
-  const key = slots()[slot];
-  if (!showNames || !PLACES || !key || width < 2) return;
-  const body = bodies()[key];
-  const view = viewOf(slot);
-  const list = (key === "earth" ? PLACES.earth.concat(PLACES.ocean) : PLACES[key as "moon" | "mars"] || [])
-    .filter((place) => place.z <= view.zoom + 0.05)
-    .sort((a, b) => a.z - b.z || a.n.length - b.n.length);
-  const placed: { x: number; y: number; w: number; h: number }[] = [];
-  ctx.font = "600 12px system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.lineWidth = 3;
-  ctx.lineJoin = "round";
-  ctx.strokeStyle = "rgba(0,0,0,.82)";
-  ctx.fillStyle = "#fff";
-  for (const place of list) {
-    const fx = (place.lon - body.lon_range[0]) / (body.lon_range[1] - body.lon_range[0]);
-    const fy = (body.lat_range[1] - place.lat) / (body.lat_range[1] - body.lat_range[0]);
-    const x = fx * width * view.zoom + view.panX;
-    const y = fy * height * view.zoom + view.panY;
-    if (x < 4 || y < 8 || x > width - 4 || y > height - 8) continue;
-    const text = placeLabel(place);
-    const boxW = ctx.measureText(text).width + 10;
-    const box = { x: x - boxW / 2, y: y - 9, w: boxW, h: 18 };
-    if (box.x < 2 || box.y < 2 || box.x + box.w > width - 2 || box.y + box.h > height - 2) continue;
-    if (placed.some((other) => box.x < other.x + other.w && other.x < box.x + box.w && box.y < other.y + other.h && other.y < box.y + box.h)) continue;
-    placed.push(box);
-    ctx.strokeText(text, x, y);
-    ctx.fillText(text, x, y);
-    if (placed.length >= 280) break;
+  const info = bodies()[bodyKey(site.body)];
+  const fx = (site.lon - info.lon_range[0]) / (info.lon_range[1] - info.lon_range[0]);
+  const fy = (info.lat_range[1] - site.lat) / (info.lat_range[1] - info.lat_range[0]);
+  const sw = (10 / 360) * img.naturalWidth;
+  const sh = (10 / 180) * img.naturalHeight;
+  const sx = fx * img.naturalWidth - sw / 2;
+  const sy = Math.min(Math.max(0, fy * img.naturalHeight - sh / 2), Math.max(0, img.naturalHeight - sh));
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, size, size);
+  const span = ((sx % img.naturalWidth) + img.naturalWidth) % img.naturalWidth;
+  const draw = () => {
+    if (span + sw <= img.naturalWidth) ctx.drawImage(img, span, sy, sw, sh, 0, 0, size, size);
+    else {
+      const leftW = img.naturalWidth - span;
+      ctx.drawImage(img, span, sy, leftW, sh, 0, 0, size * (leftW / sw), size);
+      ctx.drawImage(img, 0, sy, sw - leftW, sh, size * (leftW / sw), 0, size * ((sw - leftW) / sw), size);
+    }
+  };
+  draw();
+  const sample = ctx.getImageData(0, 0, size, size);
+  let total = 0;
+  let peak = 1;
+  for (let i = 0; i < sample.data.length; i += 4) {
+    total += sample.data[i] + sample.data[i + 1] + sample.data[i + 2];
+    peak = Math.max(peak, sample.data[i], sample.data[i + 1], sample.data[i + 2]);
+  }
+  if (total / (sample.data.length / 4) / 3 < 40) {
+    const scale = Math.min(12, 170 / peak);
+    for (let i = 0; i < sample.data.length; i += 4) {
+      sample.data[i] = Math.min(255, sample.data[i] * scale);
+      sample.data[i + 1] = Math.min(255, sample.data[i + 1] * scale);
+      sample.data[i + 2] = Math.min(255, sample.data[i + 2] * scale);
+    }
+    ctx.putImageData(sample, 0, 0);
   }
 }
 
-function drawAllLabels() {
-  for (const slot of Object.keys(slots())) drawLabels(slot);
+function watchSpot(el: HTMLElement, site: Site, match: Match | null) {
+  el.addEventListener("mouseenter", (ev) => { void openCard(ev, site, match); });
+  el.addEventListener("mousemove", (ev) => moveCard(ev));
+  el.addEventListener("mouseleave", () => hideCard());
+}
+
+async function openCard(ev: MouseEvent, site: Site, match: Match | null) {
+  const token = ++cardToken;
+  const best = shownMatches.matches[0] ?? null;
+  const origin = shownMatches.origin;
+  const moon = [site, origin, match?.a, match?.b, best?.a, best?.b].find((item): item is Site => Boolean(item && item.body === "Moon"));
+  const numberOne = best ? best.b : null;
+  const pictures: { label: string; site: Site }[] = [{ label: site.body === "Moon" ? "Moon place" : "This spot", site }];
+  if (numberOne && !sameSpot(numberOne, site)) {
+    pictures.push({ label: `#1 match ${best!.similarity.toFixed(1)}%`, site: numberOne });
+  } else if (numberOne) {
+    pictures[0] = { label: `This spot · #1 match`, site };
+  }
+  const third = moon && !pictures.some((item) => sameSpot(item.site, moon)) ? moon : (!moon && origin && !pictures.some((item) => sameSpot(item.site, origin)) ? origin : null);
+  if (third) pictures.push({ label: third.body === "Moon" ? "Moon place" : `${third.body} place`, site: third });
+  const card = $<HTMLElement>("#spotcard");
+  $("#spotName").textContent = placeName(site);
+  const percent = match?.similarity ?? best?.similarity;
+  $("#spotPct").textContent = percent != null ? `${percent.toFixed(1)}% match` : "";
+  const pics = $("#spotPics");
+  pics.innerHTML = "";
+  const canvases: HTMLCanvasElement[] = [];
+  for (const picture of pictures) {
+    const figure = document.createElement("figure");
+    const canvas = document.createElement("canvas");
+    const caption = document.createElement("figcaption");
+    caption.textContent = `${picture.label} · ${placeName(picture.site)}`;
+    figure.append(canvas, caption);
+    pics.appendChild(figure);
+    canvases.push(canvas);
+  }
+  card.hidden = false;
+  moveCard(ev);
+  await Promise.all(pictures.map((picture, index) => paintSpot(canvases[index], picture.site)));
+  if (token !== cardToken) return;
+  moveCard(ev);
 }
 
 function loadMap(url: string) {
@@ -374,6 +440,8 @@ function showBreakdown(m: Match) {
 }
 
 function showResults(matches: Match[], origin: Site | null) {
+  shownMatches = { origin, matches };
+  hideCard();
   clearMarkers(false);
   const tbody = $<HTMLTableSectionElement>("#results tbody");
   tbody.innerHTML = "";
@@ -381,13 +449,16 @@ function showResults(matches: Match[], origin: Site | null) {
   if (!matches.length) { $("#status").textContent = "No matches found."; $<HTMLElement>("#results").hidden = true; return; }
   $("#hA").textContent = matches[0].a.body + " location";
   $("#hB").textContent = matches[0].b.body + " location";
-  if (origin) place(bodyKey(origin.body), origin.lat, origin.lon, "origin", "", `${origin.body} ${fmtLL(origin.lat, origin.lon)}`);
+  if (origin) {
+    const picked = place(bodyKey(origin.body), origin.lat, origin.lon, "origin", "", placeName(origin));
+    if (picked) watchSpot(picked, origin, matches[0] ?? null);
+  }
   const relief = (p: Site) => p.features.relief_75km_m;
 
   for (const m of matches) {
     const markers = [];
-    if (!origin) markers.push(place(bodyKey(m.a.body), m.a.lat, m.a.lon, "", String(m.rank), `${m.a.body} #${m.rank}`));
-    markers.push(place(bodyKey(m.b.body), m.b.lat, m.b.lon, "", String(m.rank), `${m.b.body} #${m.rank}`));
+    if (!origin) markers.push(place(bodyKey(m.a.body), m.a.lat, m.a.lon, "", String(m.rank), placeName(m.a)));
+    markers.push(place(bodyKey(m.b.body), m.b.lat, m.b.lon, "", String(m.rank), placeName(m.b)));
     const live = markers.filter((mk): mk is HTMLDivElement => Boolean(mk));
     const tr = document.createElement("tr");
     tr.innerHTML = `<td>${m.rank}</td><td><span class="sim">${m.similarity.toFixed(1)}%</span></td>
@@ -401,7 +472,14 @@ function showResults(matches: Match[], origin: Site | null) {
       showBreakdown(m);
     };
     tr.addEventListener("click", activate);
-    live.forEach((mk) => mk.addEventListener("click", (e) => { e.stopPropagation(); activate(); tr.scrollIntoView({ block: "nearest" }); }));
+    tr.addEventListener("mouseenter", (ev) => { void openCard(ev, m.b, m); });
+    tr.addEventListener("mousemove", (ev) => moveCard(ev));
+    tr.addEventListener("mouseleave", () => hideCard());
+    const points = origin ? [m.b] : [m.a, m.b];
+    live.forEach((mk, index) => {
+      watchSpot(mk, points[index] ?? m.b, m);
+      mk.addEventListener("click", (e) => { e.stopPropagation(); activate(); tr.scrollIntoView({ block: "nearest" }); });
+    });
     tbody.appendChild(tr);
   }
   $<HTMLElement>("#results").hidden = false;
@@ -473,15 +551,13 @@ function wireMap(slot: string) {
     clearTimeout(pending);
     pending = setTimeout(async () => {
       try {
-        const h = await api<{ surface: string; elevation_m: number }>(`/api/height?body=${body}&lat=${lat}&lon=${lon}&source=${source()}`);
-        const named = nearestPlace(body, lat, lon, body === "earth" && h.elevation_m < 0);
-        const called = named ? ` · ${placeLabel(named)}` : "";
-        $(`#hover-${slot}`).textContent = `${fmtLL(lat, lon)}: ${h.surface}${called}`;
+        const h = await api<{ surface: string }>(`/api/height?body=${body}&lat=${lat}&lon=${lon}&source=${source()}`);
+        $(`#hover-${slot}`).textContent = `${fmtLL(lat, lon)}: ${h.surface}`;
       } catch { /* hover is best-effort */ }
     }, 60);
   });
   wrap.addEventListener("pointerdown", (ev) => {
-    if ((ev.target as HTMLElement).closest("button")) return;
+    if ((ev.target as HTMLElement).closest("button, .marker")) return;
     const view = viewOf(slot);
     drag = { x: ev.clientX, y: ev.clientY, panX: view.panX, panY: view.panY, moved: false, pointer: ev.pointerId };
     wrap.setPointerCapture(ev.pointerId);
@@ -497,7 +573,6 @@ function wireMap(slot: string) {
     view.panX = clampPan(drag.panX + dx, rect.width, view.zoom);
     view.panY = clampPan(drag.panY + dy, rect.height, view.zoom);
     applyView(slot);
-    drawLabels(slot);
   });
   wrap.addEventListener("pointerup", (ev) => {
     if (!drag || drag.pointer !== ev.pointerId) return;
@@ -516,13 +591,11 @@ function wireMap(slot: string) {
     view.panY = clampPan(my - (my - view.panY) * scale, rect.height, next);
     view.zoom = next;
     applyView(slot);
-    drawLabels(slot);
   }, { passive: false });
   $<HTMLButtonElement>(`#map-${slot} .mapreset`).addEventListener("click", (ev) => {
     ev.stopPropagation();
     views[slot] = { zoom: 1, panX: 0, panY: 0 };
     applyView(slot);
-    drawLabels(slot);
   });
   wrap.addEventListener("click", (ev) => {
     if (wrap.dataset.dragged === "1") {
@@ -593,7 +666,6 @@ function renderPair() {
   }
   writeMixText();
   for (const slot of Object.keys(slots())) applyView(slot);
-  drawAllLabels();
 }
 
 function writeMixText() {
@@ -617,15 +689,11 @@ function writeMixText() {
   }).join("")).join("");
   const mixLine = activeIds().map((id) => `${layerLabel(id)} ${percents[id]}%`).join(", ");
   const mapHeading = `<p><b>This mix.</b> ${esc(mixLine)}. A click still searches the elevation data below.</p>${shown}`;
-  $("#calib").innerHTML = mapHeading + elevationNotes;
-  const nameLine = showNames && PLACES
-    ? ` Names: ${PLACES.earth.length.toLocaleString()} on land, ${PLACES.ocean.length.toLocaleString()} underwater, ${PLACES.moon.length.toLocaleString()} on the Moon, ${PLACES.mars.length.toLocaleString()} on Mars. Scroll to zoom.`
+  const cited = PLACES
+    ? `<p><b>Names on a selected point.</b> ${esc(PLACES.citation.earth)} ${esc(PLACES.citation.ocean)} ${esc(PLACES.citation.moon)}</p>`
     : "";
-  $("#layerNote").textContent = `${mixLine}. A click still searches elevation.${nameLine}`;
-  const cited = PLACES && showNames
-    ? `<p><b>Names.</b> ${esc(PLACES.citation.earth)} ${esc(PLACES.citation.ocean)} ${esc(PLACES.citation.moon)}</p>`
-    : "";
-  $("#calib").insertAdjacentHTML("beforeend", cited);
+  $("#calib").innerHTML = mapHeading + elevationNotes + cited;
+  $("#layerNote").textContent = `${mixLine}. Hover a selected point or a found match for its name, pictures, and match percentage. A click still searches elevation.`;
   for (const [slot, key] of Object.entries(slots())) {
     $(`#legend${slot}`).innerHTML = legendHtml(key);
     const info = bodies()[key];
@@ -859,15 +927,7 @@ async function init() {
     pick.appendChild(row);
   }
   syncMixer();
-  new ResizeObserver(() => { schedulePaint(); drawAllLabels(); }).observe($("#maps"));
-  $("#namesBtn").addEventListener("click", () => {
-    showNames = !showNames;
-    const button = $<HTMLButtonElement>("#namesBtn");
-    button.classList.toggle("on", showNames);
-    button.setAttribute("aria-pressed", showNames ? "true" : "false");
-    writeMixText();
-    drawAllLabels();
-  });
+  new ResizeObserver(() => schedulePaint()).observe($("#maps"));
   void fetch("/names.json").then((response) => response.json()).then((raw: { citation: Record<string, string>; earth: [string, number, number, number, string][]; ocean: [string, number, number, number, string][]; moon: [string, number, number, number, string][]; mars: [string, number, number, number, string][] }) => {
     const parse = (rows: [string, number, number, number, string][]) => rows.map(([n, lat, lon, z, k]) => ({ n, lat, lon, z, k }));
     PLACES = {
@@ -878,7 +938,6 @@ async function init() {
       mars: parse(raw.mars),
     };
     writeMixText();
-    drawAllLabels();
   }).catch(() => { /* names stay off if the file is missing */ });
   const sel = $<HTMLSelectElement>("#source");
   for (const [key, s] of Object.entries(INFO.sources)) sel.add(new Option(s.label, key));
