@@ -287,11 +287,11 @@ function renderPlace(p: PlaceInfo, label: string | undefined, elevation: number 
       <figcaption>Photo: ${esc(wiki?.title || p.name)} (Wikimedia)</figcaption></figure>` : "";
   const view = p.view_url ? `<figure><img src="${esc(p.view_url)}&km=${viewKm(p).toFixed(0)}" alt="Orbital view of ${esc(p.name)}">
       <figcaption>Exact spot (red cross): ${esc(p.view_credit || "")}</figcaption></figure>` : "";
-  return `<h3>${esc(p.name)}</h3>
+  return `<div class="pics">${view}${photo}</div>
+    <h3>${esc(p.name)}</h3>
     <div class="sub">${esc(p.body)} · ${coords}${elevation != null ? ` · ${fmtM(elevation)}` : ""}${label && label !== p.name ? ` · ${esc(label)}` : ""}</div>
     ${p.description ? `<div class="desc">${esc(p.description)}${p.context ? `, ${esc(p.context)}` : ""}</div>` : ""}
     ${wiki?.summary ? `<div class="summary">${esc(wiki.summary)}</div>` : p.origin ? `<div class="summary">Named after: ${esc(p.origin)}</div>` : ""}
-    <div class="pics">${photo}${view}</div>
     ${links ? `<div class="sub" style="margin-top:6px">${links}${p.source ? ` · names: ${esc(p.source)}` : ""}</div>` : p.source ? `<div class="sub" style="margin-top:6px">names: ${esc(p.source)}</div>` : ""}`;
 }
 
