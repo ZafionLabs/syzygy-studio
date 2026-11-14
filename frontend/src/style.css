@@ -21,7 +21,8 @@
   .toggle button.on:hover { border-color: transparent; }
   .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
   main { display: grid; gap: 16px; padding: 16px 24px 32px; }
-  .maps { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  .maps { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; align-items: start; }
+  @media (max-width: 800px) { .maps { grid-template-columns: 1fr; } }
   @media (min-width: 1400px) { .lower { grid-template-columns: 3fr 2fr; } }
   .mapstack { display: flex; flex-direction: column; gap: 16px; }
   .frametitle { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
