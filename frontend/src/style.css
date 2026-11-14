@@ -35,12 +35,13 @@
   .mapview { width: 100%; transform-origin: 0 0; }
   .mapview canvas.blend { display: block; width: 100%; height: auto; }
   .mapreset { position: absolute; top: 8px; right: 8px; z-index: 6; padding: 3px 8px; font-size: 12px; background: rgba(8,12,20,.8); }
-  #spotcard { position: fixed; z-index: 30; padding: 6px 10px; background: #101826; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.45); pointer-events: none; font-size: 14px; }
-  .matchbar { display: flex; align-items: center; justify-content: center; gap: 18px; flex-wrap: wrap; }
-  .matchbar figure { margin: 0; width: min(220px, 42vw); }
-  .matchbar canvas { display: block; width: 100%; height: auto; border-radius: 8px; background: #000; }
-  .matchbar figcaption { margin-top: 6px; text-align: center; font-size: 14px; }
-  .matchpct { font-size: 22px; font-weight: 700; color: #9fd0ff; }
+  #spotcard { position: fixed; z-index: 30; width: min(440px, calc(100vw - 24px)); padding: 10px; background: #101826; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,.5); pointer-events: none; }
+  .spot-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; margin-bottom: 8px; }
+  .spot-head b { font-size: 15px; }
+  .spot-pics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .spot-pics figure { margin: 0; min-width: 0; }
+  .spot-pics canvas { display: block; width: 100%; height: auto; border-radius: 6px; background: #000; }
+  .spot-pics figcaption { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.3; }
   .mix { display: flex; flex-wrap: wrap; gap: 8px; }
   .mix-item { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px 2px 2px; }
   .mix-item button { border: none; background: transparent; color: var(--muted); }

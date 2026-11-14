@@ -245,31 +245,15 @@ function hideCard() {
 
 function moveCard(ev: MouseEvent) {
   const card = $<HTMLElement>("#spotcard");
-  const width = card.offsetWidth || 120;
-  const height = card.offsetHeight || 32;
-  let left = ev.clientX + 12;
-  let top = ev.clientY + 14;
-  if (left + width > window.innerWidth - 8) left = Math.max(8, ev.clientX - width - 12);
-  if (top + height > window.innerHeight - 8) top = Math.max(8, ev.clientY - height - 12);
+  const width = card.offsetWidth || 440;
+  const height = Math.max(card.offsetHeight || 0, 250);
+  const below = ev.clientY + 18;
+  const above = ev.clientY - height - 18;
+  const top = below + height > window.innerHeight - 8 ? Math.max(8, above) : below;
+  let left = ev.clientX + 16;
+  if (left + width > window.innerWidth - 8) left = Math.max(8, ev.clientX - width - 16);
   card.style.left = `${left}px`;
   card.style.top = `${top}px`;
-}
-
-function showMatch(site: Site, match: Match | null) {
-  const best = shownMatches.matches[0] ?? null;
-  const partner = match ? (sameSpot(site, match.a) ? match.b : match.a) : best?.b ?? null;
-  const percent = match?.similarity ?? best?.similarity;
-  const bar = $<HTMLElement>("#matchbar");
-  if (!partner || percent == null) {
-    bar.hidden = true;
-    return;
-  }
-  bar.hidden = false;
-  $("#matchHereName").textContent = placeName(site);
-  $("#matchBestName").textContent = placeName(partner);
-  $("#matchPct").textContent = `${percent.toFixed(1)}%`;
-  void paintSpot($<HTMLCanvasElement>("#matchHere"), site);
-  void paintSpot($<HTMLCanvasElement>("#matchBest"), partner);
 }
 
 async function paintSpot(canvas: HTMLCanvasElement, site: Site) {
@@ -322,13 +306,41 @@ function watchSpot(el: HTMLElement, site: Site, match: Match | null) {
   el.addEventListener("mouseleave", () => hideCard());
 }
 
-function openCard(ev: MouseEvent, site: Site, match: Match | null) {
-  cardToken += 1;
+async function openCard(ev: MouseEvent, site: Site, match: Match | null) {
+  const token = ++cardToken;
+  const best = shownMatches.matches[0] ?? null;
+  const origin = shownMatches.origin;
+  const moon = [site, origin, match?.a, match?.b, best?.a, best?.b].find((item): item is Site => Boolean(item && item.body === "Moon"));
+  const numberOne = best ? best.b : null;
+  const pictures: { label: string; site: Site }[] = [{ label: site.body === "Moon" ? "Moon place" : "This spot", site }];
+  if (numberOne && !sameSpot(numberOne, site)) {
+    pictures.push({ label: `#1 match ${best!.similarity.toFixed(1)}%`, site: numberOne });
+  } else if (numberOne) {
+    pictures[0] = { label: `This spot · #1 match`, site };
+  }
+  const third = moon && !pictures.some((item) => sameSpot(item.site, moon)) ? moon : (!moon && origin && !pictures.some((item) => sameSpot(item.site, origin)) ? origin : null);
+  if (third) pictures.push({ label: third.body === "Moon" ? "Moon place" : `${third.body} place`, site: third });
   const card = $<HTMLElement>("#spotcard");
   $("#spotName").textContent = placeName(site);
+  const percent = match?.similarity ?? best?.similarity;
+  $("#spotPct").textContent = percent != null ? `${percent.toFixed(1)}% match` : "";
+  const pics = $("#spotPics");
+  pics.innerHTML = "";
+  const canvases: HTMLCanvasElement[] = [];
+  for (const picture of pictures) {
+    const figure = document.createElement("figure");
+    const canvas = document.createElement("canvas");
+    const caption = document.createElement("figcaption");
+    caption.textContent = `${picture.label} · ${placeName(picture.site)}`;
+    figure.append(canvas, caption);
+    pics.appendChild(figure);
+    canvases.push(canvas);
+  }
   card.hidden = false;
   moveCard(ev);
-  showMatch(site, match);
+  await Promise.all(pictures.map((picture, index) => paintSpot(canvases[index], picture.site)));
+  if (token !== cardToken) return;
+  moveCard(ev);
 }
 
 function loadMap(url: string) {
@@ -434,20 +446,12 @@ function showResults(matches: Match[], origin: Site | null) {
   const tbody = $<HTMLTableSectionElement>("#results tbody");
   tbody.innerHTML = "";
   $<HTMLElement>("#breakdownWrap").hidden = true;
-  if (!matches.length) {
-    $("#status").textContent = "No matches found.";
-    $<HTMLElement>("#results").hidden = true;
-    $<HTMLElement>("#matchbar").hidden = true;
-    return;
-  }
+  if (!matches.length) { $("#status").textContent = "No matches found."; $<HTMLElement>("#results").hidden = true; return; }
   $("#hA").textContent = matches[0].a.body + " location";
   $("#hB").textContent = matches[0].b.body + " location";
   if (origin) {
     const picked = place(bodyKey(origin.body), origin.lat, origin.lon, "origin", "", placeName(origin));
     if (picked) watchSpot(picked, origin, matches[0] ?? null);
-    showMatch(origin, matches[0] ?? null);
-  } else if (matches[0]) {
-    showMatch(matches[0].a, matches[0]);
   }
   const relief = (p: Site) => p.features.relief_75km_m;
 
@@ -689,7 +693,7 @@ function writeMixText() {
     ? `<p><b>Names on a selected point.</b> ${esc(PLACES.citation.earth)} ${esc(PLACES.citation.ocean)} ${esc(PLACES.citation.moon)}</p>`
     : "";
   $("#calib").innerHTML = mapHeading + elevationNotes + cited;
-  $("#layerNote").textContent = `${mixLine}. Hover a point to see its name. The match is under the maps. A click still searches elevation.`;
+  $("#layerNote").textContent = `${mixLine}. Hover a selected point or a found match for its name, pictures, and match percentage. A click still searches elevation.`;
   for (const [slot, key] of Object.entries(slots())) {
     $(`#legend${slot}`).innerHTML = legendHtml(key);
     const info = bodies()[key];
