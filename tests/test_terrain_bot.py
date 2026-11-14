@@ -253,7 +253,8 @@ def test_web_api_round_trip():
     try:
         page = urlopen(base + "/").read()
         assert b"Terrain Bot" in page
-        assert b"Pick Moon or Mars" in page
+        assert b"Find closest match" in page and b"Compare two bodies" in page
+        assert b"<select id=\"searchMode\">" not in page
         assert urlopen(base + "/map/images/moon.png").read().startswith(b"\x89PNG")
         info = json.load(urlopen(base + "/api/info"))
         assert info["sources"]["images"]["bodies"]["earth"]["color_max_m"] == pytest.approx(8848.86)

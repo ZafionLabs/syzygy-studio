@@ -21,6 +21,11 @@
   button { cursor: pointer; }
   button:hover { border-color: var(--accent); }
   button.primary { background: var(--accent); border-color: var(--accent); color: #04111f; font-weight: 600; }
+  .toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .toggle button { border: none; border-radius: 0; background: transparent; }
+  .toggle button + button { border-left: 1px solid var(--line); }
+  .toggle button.on { background: var(--accent); color: #04111f; font-weight: 600; }
+  .toggle button.on:hover { border-color: transparent; }
   .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
   main { display: grid; gap: 16px; padding: 16px 24px 32px; }
   .maps { display: grid; gap: 16px; }
@@ -71,19 +76,17 @@
 <body>
 <header>
   <h1>Terrain Bot: Earth, Moon and Mars look-alike terrain</h1>
-  <p>Pick a spot on the Moon or Mars to find the closest matches on Earth, or compare any two bodies. Earth's underwater sea floor counts too.
+  <p>Find closest match by clicking the Moon or Mars. Compare two bodies by clicking either map. Earth's underwater sea floor counts too.
      By default it uses real measured elevations: NOAA ETOPO1 for Earth (including the ocean floor), NASA LRO LOLA for the Moon, and NASA MGS MOLA for Mars.
      You can switch to your images, scaled from each body's real lowest point to its highest: Challenger Deep (−10,935 m) to Everest (+8,849 m) on Earth, Point Trieste (−9,129 m) to the Selenean summit (+10,786 m) on the Moon, and Badwater crater in Hellas (−8,201 m) to Olympus Mons (+21,229 m) on Mars.
      Or use the images with a brightness curve fitted to the real data.</p>
 </header>
 
 <div class="toolbar">
-  <label>Search
-    <select id="searchMode">
-      <option value="on-earth">Pick Moon or Mars → closest places on Earth</option>
-      <option value="pair">Compare any two bodies</option>
-    </select>
-  </label>
+  <div class="toggle" id="searchMode" role="group" aria-label="Search">
+    <button type="button" data-mode="on-earth" class="on" aria-pressed="true">Find closest match</button>
+    <button type="button" data-mode="pair" aria-pressed="false">Compare two bodies</button>
+  </div>
   <label id="pairBodies">Compare <select id="bodyA"></select> with <select id="bodyB"></select></label>
   <label id="earthFromLabel">Top matches from
     <select id="earthFrom"></select>
@@ -186,7 +189,8 @@ const fmtLL = (lat, lon) => `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
 const source = () => $("#source").value;
 const bodies = () => INFO.sources[source()].bodies;
-const earthMode = () => $("#searchMode").value === "on-earth" && bodies().earth && Object.keys(bodies()).some((k) => k !== "earth");
+let searchMode = "on-earth";
+const earthMode = () => searchMode === "on-earth" && bodies().earth && Object.keys(bodies()).some((k) => k !== "earth");
 const slots = () => {
   if (!earthMode()) return { A: $("#bodyA").value, B: $("#bodyB").value };
   const extras = Object.keys(bodies()).filter((k) => k !== "earth");
@@ -452,14 +456,23 @@ async function init() {
   renderPair();
   renderValidation();
   $("#topBtn").addEventListener("click", runTop);
-  $("#searchMode").addEventListener("change", () => {
-    lastQuery = null;
-    renderPair();
-    $("#results").hidden = true;
-    $("#steps").innerHTML = "";
-    $("#breakdownWrap").hidden = true;
-    if (earthMode()) $("#status").textContent = "Click a spot on the Moon or Mars to find the closest matches on Earth.";
-    else runTop();
+  document.querySelectorAll("#searchMode button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (btn.dataset.mode === searchMode) return;
+      searchMode = btn.dataset.mode;
+      document.querySelectorAll("#searchMode button").forEach((b) => {
+        const on = b.dataset.mode === searchMode;
+        b.classList.toggle("on", on);
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      lastQuery = null;
+      renderPair();
+      $("#results").hidden = true;
+      $("#steps").innerHTML = "";
+      $("#breakdownWrap").hidden = true;
+      if (earthMode()) $("#status").textContent = "Click a spot on the Moon or Mars to find the closest matches on Earth.";
+      else runTop();
+    });
   });
   sel.addEventListener("change", () => { fillBodySelects(); renderPair(); rerun(); });
   for (const id of ["#bodyA", "#bodyB"]) {
