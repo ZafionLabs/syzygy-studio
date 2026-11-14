@@ -586,7 +586,7 @@ function wireMap(slot: string) {
     }, 60);
   });
   wrap.addEventListener("pointerdown", (ev) => {
-    if ((ev.target as HTMLElement).closest("button, .marker")) return;
+    if ((ev.target as HTMLElement).closest("button, .marker") || pinch) return;
     const view = viewOf(slot);
     drag = { x: ev.clientX, y: ev.clientY, panX: view.panX, panY: view.panY, moved: false, pointer: ev.pointerId };
     wrap.setPointerCapture(ev.pointerId);
@@ -608,19 +608,44 @@ function wireMap(slot: string) {
     if (drag.moved) wrap.dataset.dragged = "1";
     drag = null;
   });
-  wrap.addEventListener("wheel", (ev) => {
-    ev.preventDefault();
+  const zoomAt = (next: number, mx: number, my: number) => {
     const view = viewOf(slot);
     const rect = wrap.getBoundingClientRect();
-    const mx = ev.clientX - rect.left;
-    const my = ev.clientY - rect.top;
-    const next = Math.min(28, Math.max(1, view.zoom * (ev.deltaY < 0 ? 1.18 : 1 / 1.18)));
     const scale = next / view.zoom;
     view.panX = clampPan(mx - (mx - view.panX) * scale, rect.width, next);
     view.panY = clampPan(my - (my - view.panY) * scale, rect.height, next);
     view.zoom = next;
     applyView(slot);
+  };
+  // A trackpad pinch arrives as a wheel event with ctrlKey. A two-finger scroll does not, so it moves the page.
+  wrap.addEventListener("wheel", (ev) => {
+    if (!ev.ctrlKey) return;
+    ev.preventDefault();
+    const rect = wrap.getBoundingClientRect();
+    const next = Math.min(28, Math.max(1, viewOf(slot).zoom * (ev.deltaY < 0 ? 1.18 : 1 / 1.18)));
+    zoomAt(next, ev.clientX - rect.left, ev.clientY - rect.top);
   }, { passive: false });
+  let pinch: { dist: number; zoom: number; mx: number; my: number } | null = null;
+  const fingerDistance = (ev: TouchEvent) => Math.hypot(ev.touches[0].clientX - ev.touches[1].clientX, ev.touches[0].clientY - ev.touches[1].clientY);
+  wrap.addEventListener("touchstart", (ev) => {
+    if (ev.touches.length !== 2) return;
+    const rect = wrap.getBoundingClientRect();
+    pinch = {
+      dist: fingerDistance(ev),
+      zoom: viewOf(slot).zoom,
+      mx: (ev.touches[0].clientX + ev.touches[1].clientX) / 2 - rect.left,
+      my: (ev.touches[0].clientY + ev.touches[1].clientY) / 2 - rect.top,
+    };
+  }, { passive: true });
+  wrap.addEventListener("touchmove", (ev) => {
+    if (ev.touches.length !== 2 || !pinch) return;
+    const dist = fingerDistance(ev);
+    if (Math.abs(dist - pinch.dist) < 10) return;
+    ev.preventDefault();
+    zoomAt(Math.min(28, Math.max(1, pinch.zoom * (dist / pinch.dist))), pinch.mx, pinch.my);
+  }, { passive: false });
+  wrap.addEventListener("touchend", () => { pinch = null; });
+  wrap.addEventListener("touchcancel", () => { pinch = null; });
   $<HTMLButtonElement>(`#map-${slot} .mapreset`).addEventListener("click", (ev) => {
     ev.stopPropagation();
     views[slot] = { zoom: 1, panX: 0, panY: 0 };
