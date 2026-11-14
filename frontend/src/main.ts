@@ -572,6 +572,7 @@ const rerun = () => (lastQuery && slotOf(lastQuery.body) ? runQuery(lastQuery.bo
 function wireMap(slot: string) {
   const wrap = $(`#map-${slot}`);
   let pending: ReturnType<typeof setTimeout> | undefined;
+  let pressed: HTMLElement | null = null;
   let drag: { x: number; y: number; panX: number; panY: number; moved: boolean; pointer: number; box: HTMLElement } | null = null;
   wrap.addEventListener("mousemove", (ev) => {
     const body = slots()[slot];
@@ -590,6 +591,7 @@ function wireMap(slot: string) {
     const box = mapWrapOf(ev);
     if (!box || (ev.target as HTMLElement).closest("button, .marker") || pinch) return;
     const view = viewOf(slot);
+    pressed = box;
     drag = { x: ev.clientX, y: ev.clientY, panX: view.panX, panY: view.panY, moved: false, pointer: ev.pointerId, box };
     wrap.setPointerCapture(ev.pointerId);
   });
@@ -662,7 +664,8 @@ function wireMap(slot: string) {
       return;
     }
     const body = slots()[slot];
-    const point = body ? toLatLon(body, ev) : null;
+    const point = body ? toLatLon(body, ev, pressed) : null;
+    pressed = null;
     if (!point || (earthMode() && body === "earth")) return;
     void runQuery(body, point.lat.toFixed(3), point.lon.toFixed(3));
   });
