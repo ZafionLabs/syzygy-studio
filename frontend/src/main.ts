@@ -189,8 +189,12 @@ function clampPan(pan: number, size: number, zoom: number) {
 
 function applyView(slot: string) {
   const view = viewOf(slot);
-  $(`#map-${slot} .mapview`).style.transform = `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`;
-  $<HTMLButtonElement>(`#map-${slot} .mapreset`).hidden = view.zoom === 1 && view.panX === 0 && view.panY === 0;
+  document.querySelectorAll<HTMLElement>(`#map-${slot} .mapview`).forEach((el) => {
+    el.style.transform = `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`;
+  });
+  document.querySelectorAll<HTMLButtonElement>(`#map-${slot} .mapreset`).forEach((el) => {
+    el.hidden = view.zoom === 1 && view.panX === 0 && view.panY === 0;
+  });
   document.querySelectorAll<HTMLElement>(`#map-${slot} .marker`).forEach((marker) => {
     marker.style.transform = `translate(-50%, -50%) scale(${1 / view.zoom})`;
   });
@@ -404,11 +408,19 @@ async function api<T>(path: string): Promise<T> {
   return j as T;
 }
 
-function toLatLon(body: string, ev: MouseEvent) {
+function mapWrapOf(ev: Event) {
+  const target = ev.target;
+  if (!(target instanceof Element)) return null;
+  const box = target.closest(".mapwrap");
+  return box instanceof HTMLElement ? box : null;
+}
+
+function toLatLon(body: string, ev: MouseEvent, box?: HTMLElement | null) {
   const b = bodies()[body];
   const slot = slotOf(body);
   const view = slot ? viewOf(slot) : { zoom: 1, panX: 0, panY: 0 };
-  const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+  const rect = (box || mapWrapOf(ev))?.getBoundingClientRect();
+  if (!rect || rect.width === 0) return null;
   const fx = Math.min(1, Math.max(0, (ev.clientX - rect.left - view.panX) / (rect.width * view.zoom)));
   const fy = Math.min(1, Math.max(0, (ev.clientY - rect.top - view.panY) / (rect.height * view.zoom)));
   return {
@@ -419,17 +431,20 @@ function toLatLon(body: string, ev: MouseEvent) {
 
 function place(body: string, lat: number, lon: number, cls: string, text: string, title?: string) {
   const slot = slotOf(body);
-  if (!slot) return null;
+  if (!slot) return [];
   const b = bodies()[body];
-  const el = document.createElement("div");
-  el.className = `marker ${cls}`;
-  el.style.left = `${((lon - b.lon_range[0]) / (b.lon_range[1] - b.lon_range[0])) * 100}%`;
-  el.style.top = `${((b.lat_range[1] - lat) / (b.lat_range[1] - b.lat_range[0])) * 100}%`;
-  el.textContent = text;
-  if (title) el.dataset.label = title;
-  el.style.transform = `translate(-50%, -50%) scale(${1 / viewOf(slot).zoom})`;
-  $(`#map-${slot} .mapview`).appendChild(el);
-  return el;
+  const views = document.querySelectorAll<HTMLElement>(`#map-${slot} .mapview`);
+  return Array.from(views, (view) => {
+    const el = document.createElement("div");
+    el.className = `marker ${cls}`;
+    el.style.left = `${((lon - b.lon_range[0]) / (b.lon_range[1] - b.lon_range[0])) * 100}%`;
+    el.style.top = `${((b.lat_range[1] - lat) / (b.lat_range[1] - b.lat_range[0])) * 100}%`;
+    el.textContent = text;
+    if (title) el.dataset.label = title;
+    el.style.transform = `translate(-50%, -50%) scale(${1 / viewOf(slot).zoom})`;
+    view.appendChild(el);
+    return el;
+  });
 }
 
 const clearMarkers = (all: boolean) => document.querySelectorAll(all ? ".marker" : ".marker:not(.lm)").forEach((m) => m.remove());
@@ -478,16 +493,16 @@ function showResults(matches: Match[], origin: Site | null) {
   $("#hA").textContent = matches[0].a.body + " location";
   $("#hB").textContent = matches[0].b.body + " location";
   if (origin) {
-    const picked = place(bodyKey(origin.body), origin.lat, origin.lon, "origin", "", placeName(origin));
-    if (picked) watchSpot(picked, origin, matches[0] ?? null);
+    place(bodyKey(origin.body), origin.lat, origin.lon, "origin", "", placeName(origin))
+      .forEach((picked) => watchSpot(picked, origin, matches[0] ?? null));
   }
   const relief = (p: Site) => p.features.relief_75km_m;
 
   for (const m of matches) {
-    const markers = [];
-    if (!origin) markers.push(place(bodyKey(m.a.body), m.a.lat, m.a.lon, "", String(m.rank), placeName(m.a)));
-    markers.push(place(bodyKey(m.b.body), m.b.lat, m.b.lon, "", String(m.rank), placeName(m.b)));
-    const live = markers.filter((mk): mk is HTMLDivElement => Boolean(mk));
+    const groups = [];
+    if (!origin) groups.push(place(bodyKey(m.a.body), m.a.lat, m.a.lon, "", String(m.rank), placeName(m.a)));
+    groups.push(place(bodyKey(m.b.body), m.b.lat, m.b.lon, "", String(m.rank), placeName(m.b)));
+    const live = groups.flat();
     const tr = document.createElement("tr");
     tr.innerHTML = `<td>${m.rank}</td><td><span class="sim">${m.similarity.toFixed(1)}%</span></td>
       <td>${fmtLL(m.a.lat, m.a.lon)}</td><td>${elevCell(m.a)}</td><td>${fmtM(relief(m.a))}</td>
@@ -505,10 +520,10 @@ function showResults(matches: Match[], origin: Site | null) {
     tr.addEventListener("mousemove", (ev) => moveCard(ev));
     tr.addEventListener("mouseleave", () => hideCard());
     const points = origin ? [m.b] : [m.a, m.b];
-    live.forEach((mk, index) => {
+    groups.forEach((markers, index) => markers.forEach((mk) => {
       watchSpot(mk, points[index] ?? m.b, m);
       mk.addEventListener("click", (e) => { e.stopPropagation(); activate(); tr.scrollIntoView({ block: "nearest" }); });
-    });
+    }));
     tbody.appendChild(tr);
   }
   $<HTMLElement>("#results").hidden = false;
@@ -572,11 +587,12 @@ const rerun = () => (lastQuery && slotOf(lastQuery.body) ? runQuery(lastQuery.bo
 function wireMap(slot: string) {
   const wrap = $(`#map-${slot}`);
   let pending: ReturnType<typeof setTimeout> | undefined;
-  let drag: { x: number; y: number; panX: number; panY: number; moved: boolean; pointer: number } | null = null;
+  let drag: { x: number; y: number; panX: number; panY: number; moved: boolean; pointer: number; box: HTMLElement } | null = null;
   wrap.addEventListener("mousemove", (ev) => {
     const body = slots()[slot];
-    if (!body || drag?.moved) return;
-    const { lat, lon } = toLatLon(body, ev);
+    const point = !body || drag?.moved ? null : toLatLon(body, ev);
+    if (!point) return;
+    const { lat, lon } = point;
     clearTimeout(pending);
     pending = setTimeout(async () => {
       try {
@@ -586,9 +602,10 @@ function wireMap(slot: string) {
     }, 60);
   });
   wrap.addEventListener("pointerdown", (ev) => {
-    if ((ev.target as HTMLElement).closest("button, .marker") || pinch) return;
+    const box = mapWrapOf(ev);
+    if (!box || (ev.target as HTMLElement).closest("button, .marker") || pinch) return;
     const view = viewOf(slot);
-    drag = { x: ev.clientX, y: ev.clientY, panX: view.panX, panY: view.panY, moved: false, pointer: ev.pointerId };
+    drag = { x: ev.clientX, y: ev.clientY, panX: view.panX, panY: view.panY, moved: false, pointer: ev.pointerId, box };
     wrap.setPointerCapture(ev.pointerId);
   });
   wrap.addEventListener("pointermove", (ev) => {
@@ -598,7 +615,7 @@ function wireMap(slot: string) {
     if (Math.hypot(dx, dy) > 4) drag.moved = true;
     if (!drag.moved) return;
     const view = viewOf(slot);
-    const rect = wrap.getBoundingClientRect();
+    const rect = drag.box.getBoundingClientRect();
     view.panX = clampPan(drag.panX + dx, rect.width, view.zoom);
     view.panY = clampPan(drag.panY + dy, rect.height, view.zoom);
     applyView(slot);
@@ -608,9 +625,8 @@ function wireMap(slot: string) {
     if (drag.moved) wrap.dataset.dragged = "1";
     drag = null;
   });
-  const zoomAt = (next: number, mx: number, my: number) => {
+  const zoomAt = (next: number, mx: number, my: number, rect: DOMRect) => {
     const view = viewOf(slot);
-    const rect = wrap.getBoundingClientRect();
     const scale = next / view.zoom;
     view.panX = clampPan(mx - (mx - view.panX) * scale, rect.width, next);
     view.panY = clampPan(my - (my - view.panY) * scale, rect.height, next);
@@ -619,22 +635,25 @@ function wireMap(slot: string) {
   };
   // A trackpad pinch arrives as a wheel event with ctrlKey. A two-finger scroll does not, so it moves the page.
   wrap.addEventListener("wheel", (ev) => {
-    if (!ev.ctrlKey) return;
+    const box = mapWrapOf(ev);
+    if (!ev.ctrlKey || !box) return;
     ev.preventDefault();
-    const rect = wrap.getBoundingClientRect();
+    const rect = box.getBoundingClientRect();
     const next = Math.min(28, Math.max(1, viewOf(slot).zoom * (ev.deltaY < 0 ? 1.18 : 1 / 1.18)));
-    zoomAt(next, ev.clientX - rect.left, ev.clientY - rect.top);
+    zoomAt(next, ev.clientX - rect.left, ev.clientY - rect.top, rect);
   }, { passive: false });
-  let pinch: { dist: number; zoom: number; mx: number; my: number } | null = null;
+  let pinch: { dist: number; zoom: number; mx: number; my: number; rect: DOMRect } | null = null;
   const fingerDistance = (ev: TouchEvent) => Math.hypot(ev.touches[0].clientX - ev.touches[1].clientX, ev.touches[0].clientY - ev.touches[1].clientY);
   wrap.addEventListener("touchstart", (ev) => {
-    if (ev.touches.length !== 2) return;
-    const rect = wrap.getBoundingClientRect();
+    const box = mapWrapOf(ev);
+    if (ev.touches.length !== 2 || !box) return;
+    const rect = box.getBoundingClientRect();
     pinch = {
       dist: fingerDistance(ev),
       zoom: viewOf(slot).zoom,
       mx: (ev.touches[0].clientX + ev.touches[1].clientX) / 2 - rect.left,
       my: (ev.touches[0].clientY + ev.touches[1].clientY) / 2 - rect.top,
+      rect,
     };
   }, { passive: true });
   wrap.addEventListener("touchmove", (ev) => {
@@ -642,24 +661,25 @@ function wireMap(slot: string) {
     const dist = fingerDistance(ev);
     if (Math.abs(dist - pinch.dist) < 10) return;
     ev.preventDefault();
-    zoomAt(Math.min(28, Math.max(1, pinch.zoom * (dist / pinch.dist))), pinch.mx, pinch.my);
+    zoomAt(Math.min(28, Math.max(1, pinch.zoom * (dist / pinch.dist))), pinch.mx, pinch.my, pinch.rect);
   }, { passive: false });
   wrap.addEventListener("touchend", () => { pinch = null; });
   wrap.addEventListener("touchcancel", () => { pinch = null; });
-  $<HTMLButtonElement>(`#map-${slot} .mapreset`).addEventListener("click", (ev) => {
-    ev.stopPropagation();
-    views[slot] = { zoom: 1, panX: 0, panY: 0 };
-    applyView(slot);
-  });
   wrap.addEventListener("click", (ev) => {
+    if ((ev.target as HTMLElement).closest(".mapreset")) {
+      ev.stopPropagation();
+      views[slot] = { zoom: 1, panX: 0, panY: 0 };
+      applyView(slot);
+      return;
+    }
     if (wrap.dataset.dragged === "1") {
       wrap.dataset.dragged = "";
       return;
     }
     const body = slots()[slot];
-    if (!body || (earthMode() && body === "earth")) return;
-    const { lat, lon } = toLatLon(body, ev);
-    void runQuery(body, lat.toFixed(3), lon.toFixed(3));
+    const point = body ? toLatLon(body, ev) : null;
+    if (!point || (earthMode() && body === "earth")) return;
+    void runQuery(body, point.lat.toFixed(3), point.lon.toFixed(3));
   });
 }
 
@@ -698,16 +718,14 @@ function renderPair() {
     const drawable = usableLayers(key);
     const missing = drawable.length === 0;
     $(`#map-${slot}`).style.cursor = missing || (earthMode() && key === "earth") ? "default" : "crosshair";
-    const unavailable = $<HTMLElement>(`#map-${slot} .unavailable`);
-    unavailable.hidden = !missing;
-    unavailable.textContent = missing ? "None of the selected maps are available for this body." : "";
+    syncFrames(slot, key);
     $(`#title${slot}`).textContent = b.name;
     $(`#hover-${slot}`).textContent = earthMode()
       ? (key === "earth" ? "Closest places on Earth show up here." : "Hover to read elevation. Click to find the closest places on Earth.")
       : `Hover to read elevation. Click to search ${bodies()[otherOf(key)].name}.`;
     for (const lm of b.landmarks) {
-      const marker = place(key, lm.lat, lm.lon, "lm", lm.kind === "highest" ? "▲" : "▼", lm.name);
-      if (marker) watchSpot(marker, { body: b.name, lat: lm.lat, lon: lm.lon, surface: "", underwater: lm.kind === "lowest" && key === "earth", features: {} }, null);
+      const site = { body: b.name, lat: lm.lat, lon: lm.lon, surface: "", underwater: lm.kind === "lowest" && key === "earth", features: {} };
+      place(key, lm.lat, lm.lon, "lm", lm.kind === "highest" ? "▲" : "▼", lm.name).forEach((marker) => watchSpot(marker, site, null));
     }
   }
   $("#lmButtons").innerHTML = "";
@@ -745,14 +763,14 @@ function writeMixText() {
       (item.citation ? `<p>${esc(item.citation)}</p>` : "");
   }).join("")).join("");
   const mixLine = activeIds().map((id) => `${layerLabel(id)} ${percents[id]}%`).join(", ");
-  const mapHeading = `<p><b>This mix.</b> ${esc(mixLine)}. A click still searches the elevation data below.</p>${shown}`;
+  const mapHeading = `<p><b>These maps.</b> ${esc(mixLine)}. Each selected map is drawn on its own, one under the other. A click still searches the elevation data.</p>${shown}`;
   const cited = PLACES
     ? `<p><b>Names on a selected point.</b> ${esc(PLACES.citation.earth)} ${esc(PLACES.citation.ocean)} ${esc(PLACES.citation.moon)}</p>`
     : "";
   $("#calib").innerHTML = mapHeading + elevationNotes + cited;
-  $("#layerNote").textContent = `${mixLine}. Hover a point to see its name and a picture. The match is under the maps. A click still searches elevation.`;
+  $("#layerNote").textContent = `${mixLine}. Each map is shown on its own, one under the other. Hover a point to see its name and a picture. A click still searches elevation.`;
   for (const [slot, key] of Object.entries(slots())) {
-    $(`#legend${slot}`).innerHTML = legendHtml(key);
+    syncFrames(slot, key);
     const info = bodies()[key];
     $(`#range${slot}`).textContent = usableLayers(key).length
       ? activeIds().map((id) => `${percents[id]}% ${id === "elevation" ? info.source_name : (LAYERS?.bodies[key]?.[id]?.title || layerLabel(id))}`).join(" · ")
@@ -762,10 +780,13 @@ function writeMixText() {
 }
 
 function legendHtml(key: string) {
+  return activeIds().map((id) => legendOne(key, id)).join("");
+}
+
+function legendOne(key: string, id: string) {
   const b = bodies()[key];
-  const ids = activeIds();
-  const percents = displayPercents(ids);
-  return ids.map((id) => {
+  const percents = displayPercents(activeIds());
+  return [id].map((id) => {
     const percent = `${percents[id]}%`;
     if (id === "elevation") {
       return `<div class="legend-row"><span class="pct">${percent}</span><span class="name">Elevation</span><span class="bar" style="background:${GRADIENTS[key] || GRADIENTS.moon}"></span><span>${esc(fmtM(b.color_min_m))}</span><span>${esc(fmtM(b.color_max_m))}</span></div>`;
@@ -780,6 +801,37 @@ function legendHtml(key: string) {
   }).join("");
 }
 
+function syncFrames(slot: string, key: string) {
+  const stack = $(`#map-${slot}`);
+  const ids = usableLayers(key);
+  const percents = displayPercents(activeIds());
+  stack.querySelectorAll<HTMLElement>(".mapframe").forEach((frame) => {
+    if (!ids.includes(frame.dataset.layer || "")) frame.remove();
+  });
+  stack.querySelector(":scope > .note")?.remove();
+  if (!ids.length) {
+    stack.insertAdjacentHTML("beforeend", `<p class="note">None of the selected maps are available for this body.</p>`);
+    return;
+  }
+  for (const id of ids) {
+    let frame = stack.querySelector<HTMLElement>(`.mapframe[data-layer="${id}"]`);
+    if (!frame) {
+      frame = document.createElement("div");
+      frame.className = "mapframe";
+      frame.dataset.layer = id;
+      frame.innerHTML = `<div class="frametitle"></div><div class="mapwrap"><div class="mapview"><canvas class="blend"></canvas></div><button type="button" class="mapreset" hidden>Reset view</button></div><div class="legend"></div>`;
+      stack.appendChild(frame);
+    }
+    const title = id === "elevation" ? "Elevation" : (LAYERS?.bodies[key]?.[id]?.title || layerLabel(id));
+    const heading = frame.querySelector(".frametitle");
+    if (heading) heading.textContent = `${title} · ${percents[id] ?? 0}%`;
+    const legend = frame.querySelector(".legend");
+    if (legend) legend.innerHTML = legendOne(key, id);
+    stack.appendChild(frame);
+  }
+  applyView(slot);
+}
+
 function schedulePaint() {
   if (paintQueued) return;
   paintQueued = true;
@@ -791,50 +843,20 @@ function schedulePaint() {
 
 async function paintBlend(slot: string, key: string) {
   const gen = (paintGen[slot] = (paintGen[slot] || 0) + 1);
-  const canvas = $<HTMLCanvasElement>(`#map-${slot} canvas.blend`);
-  const ids = usableLayers(key);
-  if (!ids.length) {
-    canvas.hidden = true;
-    return;
-  }
-  const width = Math.max(480, Math.round(canvas.clientWidth * Math.min(window.devicePixelRatio || 1, 2)));
-  const height = Math.round(width / 2);
-  const loaded = await Promise.all(ids.map((id) => loadMap(mapUrl(key, id)).catch(() => null)));
-  if (paintGen[slot] !== gen) return;
-  const weights = ids.map((id) => shares[id] ?? 0);
-  const off = document.createElement("canvas");
-  off.width = width;
-  off.height = height;
-  const read = off.getContext("2d", { willReadFrequently: true });
-  if (!read) return;
-  const acc = new Float32Array(width * height * 3);
-  let weightSum = 0;
-  loaded.forEach((img, index) => {
-    if (!img) return;
-    const weight = weights[index];
-    read.clearRect(0, 0, width, height);
-    read.drawImage(img, 0, 0, width, height);
-    const data = read.getImageData(0, 0, width, height).data;
-    for (let pixel = 0, channel = 0; pixel < data.length; pixel += 4, channel += 3) {
-      acc[channel] += data[pixel] * weight;
-      acc[channel + 1] += data[pixel + 1] * weight;
-      acc[channel + 2] += data[pixel + 2] * weight;
-    }
-    weightSum += weight;
-  });
-  if (paintGen[slot] !== gen || weightSum <= 0) return;
-  const out = read.createImageData(width, height);
-  const scale = 1 / weightSum;
-  for (let pixel = 0, channel = 0; pixel < out.data.length; pixel += 4, channel += 3) {
-    out.data[pixel] = acc[channel] * scale;
-    out.data[pixel + 1] = acc[channel + 1] * scale;
-    out.data[pixel + 2] = acc[channel + 2] * scale;
-    out.data[pixel + 3] = 255;
-  }
-  canvas.hidden = false;
-  canvas.width = width;
-  canvas.height = height;
-  canvas.getContext("2d")?.putImageData(out, 0, 0);
+  const frames = Array.from(document.querySelectorAll<HTMLElement>(`#map-${slot} .mapframe`));
+  await Promise.all(frames.map(async (frame) => {
+    const id = frame.dataset.layer || "";
+    const canvas = frame.querySelector("canvas");
+    if (!canvas) return;
+    const img = await loadMap(mapUrl(key, id)).catch(() => null);
+    if (paintGen[slot] !== gen || !img) return;
+    const width = Math.max(480, Math.round((canvas.clientWidth || $(`#map-${slot}`).clientWidth) * Math.min(window.devicePixelRatio || 1, 2)));
+    const height = Math.round(width / 2);
+    canvas.hidden = false;
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d")?.drawImage(img, 0, 0, width, height);
+  }));
 }
 
 function renderValidation() {

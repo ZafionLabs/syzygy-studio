@@ -21,12 +21,10 @@
   .toggle button.on:hover { border-color: transparent; }
   .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
   main { display: grid; gap: 16px; padding: 16px 24px 32px; }
-  .maps { display: grid; gap: 16px; }
-  @media (min-width: 900px) {
-    .maps.earth-mode { grid-template-columns: 1fr 1fr; }
-    .maps.earth-mode .earth-result { grid-column: 1 / -1; }
-  }
-  @media (min-width: 1400px) { .maps { grid-template-columns: 1fr 1fr; } .lower { grid-template-columns: 3fr 2fr; } }
+  .maps { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 1400px) { .lower { grid-template-columns: 3fr 2fr; } }
+  .mapstack { display: flex; flex-direction: column; gap: 16px; }
+  .frametitle { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
   .lower { display: grid; gap: 16px; align-items: start; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
   .panel h2 { margin: 0 0 8px; font-size: 15px; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
