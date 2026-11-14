@@ -27,6 +27,9 @@ OUT = ROOT / "data" / "layers"
 CACHE = Path("/tmp/layers")
 UA = {"User-Agent": "terrain-bot/1.0 (educational)"}
 W, H = 1440, 720
+# Geologic-unit maps share one frame. 8 pixels per degree is an exact
+# reduction of the 64 pixel-per-degree lunar raster, and it keeps unit edges sharp.
+GEO_W, GEO_H = 2880, 1440
 SIGMA = 5.670374419e-8
 
 
@@ -142,19 +145,6 @@ def bin_mean(lon: np.ndarray, lat: np.ndarray, val: np.ndarray, valid: np.ndarra
     return upscale_nearest(out)
 
 
-def thermal_inertia() -> np.ndarray:
-    """Putzig 2007 nightside map, 20 pixels/degree, simple cylindrical, north at the top."""
-    raw = np.fromfile(CACHE / "global_ti_night_2007.img", dtype=">i2").reshape(3600, 7200).astype(np.float32)
-    blocks = raw.reshape(H, 5, W, 5)
-    valid = blocks > 0
-    count = valid.sum(axis=(1, 3))
-    total = np.where(valid, blocks, 0).sum(axis=(1, 3))
-    out = np.full((H, W), np.nan)
-    good = count > 0
-    out[good] = total[good] / count[good]
-    return out
-
-
 def moon_geology() -> Image.Image:
     archive = CACHE / "moon_geology.zip"
     member = (
@@ -168,7 +158,93 @@ def moon_geology() -> Image.Image:
     Image.MAX_IMAGE_PIXELS = None
     image = Image.open(dest).convert("RGB")
     # Nearest keeps each rock unit's color. Averaging would blend the legend together.
-    return image.resize((W, H), Image.Resampling.NEAREST)
+    return image.resize((GEO_W, GEO_H), Image.Resampling.NEAREST)
+
+
+def write_image(image: Image.Image, name: str) -> None:
+    image.save(OUT / name, format="PNG", optimize=True)
+
+
+def earth_geology() -> Image.Image:
+    """Geological Survey of Canada world geology, equirectangular, oceans filled from ETOPO1."""
+    url = (
+        "https://mrdata.usgs.gov/services/worldgeol?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0"
+        "&LAYERS=geology&STYLES=default&CRS=EPSG:4326&BBOX=-90,-180,90,180"
+        f"&WIDTH={GEO_W}&HEIGHT={GEO_H}&FORMAT=image/png&TRANSPARENT=false"
+    )
+    image = Image.open(fetch(url, "earth_geology_wms.png")).convert("RGB")
+    if image.size != (GEO_W, GEO_H):
+        image = image.resize((GEO_W, GEO_H), Image.Resampling.NEAREST)
+    pixels = np.array(image)
+    dem = np.load(ROOT / "data" / "dem" / "earth_etopo1_0p25deg.npz")["elevation"]
+    if dem.shape != (GEO_H, GEO_W):
+        dem = np.array(Image.fromarray(dem.astype(np.float32), "F").resize((GEO_W, GEO_H), Image.Resampling.BILINEAR))
+    blank = pixels.min(axis=2) > 245
+    pixels[blank & (dem < 0)] = (24, 78, 145)
+    pixels[blank & (dem >= 0)] = (186, 214, 230)
+    return Image.fromarray(pixels, "RGB")
+
+
+# Colors follow the published unit groups: polar units are pale, volcanic units are
+# warm, Hesperian plains are green, and Noachian highlands are brown.
+MARS_UNIT_COLORS = {
+    "lApc": (236, 246, 255), "lApd": (214, 232, 246), "Ap": (190, 220, 236), "Apu": (168, 206, 228),
+    "Hp": (128, 186, 210), "Hpe": (104, 168, 198), "Hpu": (86, 150, 186),
+    "Av": (255, 214, 64), "lAv": (255, 176, 40), "lAvf": (245, 140, 36), "Ave": (235, 110, 48),
+    "AHv": (220, 64, 78), "eHv": (196, 48, 68), "lHv": (168, 40, 60), "Hve": (196, 88, 88), "lHvf": (132, 42, 54),
+    "lNv": (122, 42, 48), "Nve": (102, 36, 52), "eNhm": (92, 42, 58), "mNhm": (112, 52, 72),
+    "eAb": (92, 82, 176), "lHb": (72, 92, 166), "eHb": (80, 112, 184), "HNb": (62, 72, 146),
+    "Aa": (255, 226, 156), "lAa": (242, 206, 136), "ANa": (224, 184, 124), "AHi": (206, 168, 112),
+    "lHt": (118, 188, 90), "Ht": (88, 168, 78), "eHt": (68, 148, 70), "HNt": (98, 158, 108),
+    "Htu": (78, 138, 98), "AHtu": (138, 178, 88), "Hto": (58, 128, 78), "mAl": (158, 198, 98), "lHl": (126, 172, 84),
+    "lNh": (196, 140, 90), "mNh": (168, 108, 68), "eNh": (138, 84, 54), "eHh": (160, 118, 78),
+    "Nhe": (180, 128, 84), "Nhu": (148, 98, 64), "HNhu": (128, 88, 58),
+}
+
+
+def mars_geology() -> Image.Image:
+    """Tanaka et al. 2014 units. The shapefile is already simple cylindrical, in degrees."""
+    import shapefile
+    from rasterio.features import rasterize
+    from rasterio.transform import from_bounds
+    from shapely.geometry import shape
+
+    archive = fetch(
+        "https://pubs.usgs.gov/sim/3292/downloads/sim3292_database.zip",
+        "sim3292.zip",
+    )
+    folder = CACHE / "marsgeo"
+    folder.mkdir(exist_ok=True)
+    base = "SIM3292_MarsGlobalGeologicGIS_20M/SIM3292_Shapefiles/SIM3292_Global_Geology"
+    if not (folder / "geo.shp").exists():
+        with zipfile.ZipFile(archive) as bundle:
+            for ext in (".shp", ".shx", ".dbf", ".prj"):
+                (folder / f"geo{ext}").write_bytes(bundle.read(base + ext))
+    reader = shapefile.Reader(str(folder / "geo.shp"))
+    shapes = []
+    for record, geom in zip(reader.iterRecords(), reader.shapes()):
+        unit = str(record["Unit"]).strip()
+        color_index = list(MARS_UNIT_COLORS).index(unit) + 1 if unit in MARS_UNIT_COLORS else 255
+        area = float(record["SphArea_km"] or 0)
+        polygon = shape(geom.__geo_interface__)
+        if polygon.is_empty:
+            continue
+        shapes.append((area, polygon, color_index))
+    shapes.sort(key=lambda item: item[0], reverse=True)
+    transform = from_bounds(-180, -90, 180, 90, GEO_W, GEO_H)
+    painted = rasterize(
+        ((geom, index) for _, geom, index in shapes),
+        out_shape=(GEO_H, GEO_W),
+        transform=transform,
+        fill=0,
+        dtype="uint8",
+    )
+    palette = np.zeros((256, 3), np.uint8)
+    palette[0] = (32, 28, 36)
+    for index, unit in enumerate(MARS_UNIT_COLORS, start=1):
+        palette[index] = MARS_UNIT_COLORS[unit]
+    palette[255] = (80, 80, 80)
+    return Image.fromarray(palette[painted], "RGB")
 
 
 def download() -> None:
@@ -194,10 +270,6 @@ def download() -> None:
             f"{root}TES_COD_IR_MY25_Ls{start:03d}_Ls{end:03d}.dat",
             f"tes_my25_{start:03d}.dat",
         )
-    fetch(
-        "https://pds-geosciences.wustl.edu/mgs/mgs-m-tes-5-timap-v1/mgst_9001/data/global_ti_night_2007.img",
-        "global_ti_night_2007.img",
-    )
 
 
 def report(name: str, values: np.ndarray, valid: np.ndarray) -> None:
@@ -260,13 +332,13 @@ def catalog() -> dict:
                     "photo",
                 ),
                 "geology": entry(
-                    "Crustal thickness",
-                    "CRUST1.0, Laske, Masters, Ma, and Pasyanos 2013",
-                    "thinner crust",
-                    "thicker crust",
-                    "Thickness of ice, sediment, and crystalline crust, with the ocean water left out. Ocean crust is thin; continents and mountains are thick.",
-                    "Laske, G., G. Masters, Z. Ma, and M. Pasyanos (2013), Update on CRUST1.0, a 1-degree global model of Earth's crust. Geophysical Research Abstracts 15, EGU2013-2658.",
-                    "heat",
+                    "Geologic units",
+                    "Geological Survey of Canada world geology, Kirkham, Chorlton, and Carriere 1995",
+                    "unit color",
+                    "unit color",
+                    "Each color is a rock unit on the generalized geologic map of the world, in the same simple-cylindrical frame as the Moon and Mars. Blue is ocean. Pale blue on Antarctica is ice where the source map has no rock unit.",
+                    "Kirkham, R. V., L. B. Chorlton, and J. J. Carriere, 1995, Generalized geology of the world, Geological Survey of Canada Open File 2915. Map image: USGS Mineral Resources Program WMS, EPSG:4326.",
+                    "photo",
                 ),
                 "weather": entry(
                     "Rain and snow rate",
@@ -372,13 +444,13 @@ def catalog() -> dict:
                     "heat",
                 ),
                 "geology": entry(
-                    "Nighttime thermal inertia",
-                    "MGS TES nightside thermal inertia, Putzig and Mellon 2007",
-                    "dust",
-                    "rock or duricrust",
-                    "How fast the ground takes up and gives off heat, over the whole planet. Dust is low; rock and duricrust are high. A colored geologic-unit plate in this projection is not the map used here, because the published unit sheet is not simple cylindrical and would put clicks in the wrong place.",
-                    "Putzig, N. E., and M. T. Mellon (2007), Apparent thermal inertia and the surface heterogeneity of Mars, Icarus 191, 68–94. NASA PDS map GLOBAL_TI_NIGHT_2007, simple cylindrical, 20 pixels per degree.",
-                    "heat",
+                    "Geologic units",
+                    "USGS geologic map of Mars, Tanaka and others 2014",
+                    "unit color",
+                    "unit color",
+                    "Each color is a rock unit from the 1:20,000,000 geologic map, drawn in the same simple-cylindrical frame as the Moon. Brown is the old southern highlands, green is the northern plains, and red and yellow are volcanic rock.",
+                    "Tanaka, K. L., J. A. Skinner, J. M. Dohm, R. P. Irwin, E. J. Kolb, C. M. Fortezzo, T. Platz, G. G. Michael, and T. M. Hare (2014), Geologic map of Mars, USGS Scientific Investigations Map 3292. Rasterized from the published degree-coordinate shapefile.",
+                    "photo",
                 ),
                 "weather": entry(
                     "Dust in the atmosphere",
@@ -456,21 +528,18 @@ def main() -> None:
     report("mars dust", dust_map, np.isfinite(dust_map))
     print("olympus T", spot(temp_map, 18.6, 226.2 - 360), "hellas T", spot(temp_map, -42.4, 70.5))
 
-    inertia = thermal_inertia()
-    report("mars TI", inertia, np.isfinite(inertia))
-
     save(colorize(tmax, np.isfinite(tmax), *limits(tmax, np.isfinite(tmax))), "moon_temperature.png")
     # Bright end is colder, so ice-stable ground stands out at the poles.
     cold = -tmin
     save(colorize(cold, np.isfinite(cold), *limits(cold, np.isfinite(cold))), "moon_ice-water.png")
-    save(moon_geology(), "moon_geology.png")
+    write_image(moon_geology(), "moon_geology.png")
+    write_image(earth_geology(), "earth_geology.png")
     save(colorize(swing, np.isfinite(swing), *limits(swing, np.isfinite(swing))), "moon_weather.png")
     save(colorize(emitted, np.isfinite(emitted), *limits(emitted, np.isfinite(emitted))), "moon_radiation.png")
 
     save(colorize(temp_map, np.isfinite(temp_map), *limits(temp_map, np.isfinite(temp_map))), "mars_temperature.png")
     save(colorize(hydrogen, np.isfinite(hydrogen), *limits(hydrogen, np.isfinite(hydrogen))), "mars_ice-water.png")
-    # A few cells are thousands of SI units and would otherwise flatten the dust-to-rock range.
-    save(colorize(inertia, np.isfinite(inertia), 40, 400), "mars_geology.png")
+    write_image(mars_geology(), "mars_geology.png")
     save(colorize(dust_map, np.isfinite(dust_map), *limits(dust_map, np.isfinite(dust_map))), "mars_weather.png")
     save(colorize(fast, np.isfinite(fast), *limits(fast, np.isfinite(fast))), "mars_radiation.png")
 

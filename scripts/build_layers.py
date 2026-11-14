@@ -112,7 +112,6 @@ def main() -> None:
     snow = gibs("MODIS_Terra_NDSI_Snow_Cover", "2024-01-15", "earth_snow.jpg")
     sea_ice = gibs("AMSRU2_Sea_Ice_Concentration_25km", "2024-03-01", "earth_ice.jpg")
     save(earth_ice(snow, sea_ice), "earth_ice-water.png")
-    save(colorize(*_crust_pair(), 5, 70), "earth_geology.png")
     save(usgs("/maps/earth/moon_simp_cyl.map", "LROC_WAC", "moon_light.jpg"), "moon_light.png")
     save(usgs("/maps/mars/mars_simp_cyl.map", "MDIM21_color", "mars_light.jpg"), "mars_light.png")
     print("Earth maps and the Moon and Mars mosaics are written.")

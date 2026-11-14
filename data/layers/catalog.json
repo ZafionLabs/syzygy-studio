@@ -53,13 +53,13 @@
       },
       "geology": {
         "available": true,
-        "title": "Crustal thickness",
-        "source": "CRUST1.0, Laske, Masters, Ma, and Pasyanos 2013",
-        "low": "thinner crust",
-        "high": "thicker crust",
-        "note": "Thickness of ice, sediment, and crystalline crust, with the ocean water left out. Ocean crust is thin; continents and mountains are thick.",
-        "citation": "Laske, G., G. Masters, Z. Ma, and M. Pasyanos (2013), Update on CRUST1.0, a 1-degree global model of Earth's crust. Geophysical Research Abstracts 15, EGU2013-2658.",
-        "ramp": "heat"
+        "title": "Geologic units",
+        "source": "Geological Survey of Canada world geology, Kirkham, Chorlton, and Carriere 1995",
+        "low": "unit color",
+        "high": "unit color",
+        "note": "Each color is a rock unit on the generalized geologic map of the world, in the same simple-cylindrical frame as the Moon and Mars. Blue is ocean. Pale blue on Antarctica is ice where the source map has no rock unit.",
+        "citation": "Kirkham, R. V., L. B. Chorlton, and J. J. Carriere, 1995, Generalized geology of the world, Geological Survey of Canada Open File 2915. Map image: USGS Mineral Resources Program WMS, EPSG:4326.",
+        "ramp": "photo"
       },
       "weather": {
         "available": true,
@@ -177,13 +177,13 @@
       },
       "geology": {
         "available": true,
-        "title": "Nighttime thermal inertia",
-        "source": "MGS TES nightside thermal inertia, Putzig and Mellon 2007",
-        "low": "dust",
-        "high": "rock or duricrust",
-        "note": "How fast the ground takes up and gives off heat, over the whole planet. Dust is low; rock and duricrust are high. A colored geologic-unit plate in this projection is not the map used here, because the published unit sheet is not simple cylindrical and would put clicks in the wrong place.",
-        "citation": "Putzig, N. E., and M. T. Mellon (2007), Apparent thermal inertia and the surface heterogeneity of Mars, Icarus 191, 68\u201394. NASA PDS map GLOBAL_TI_NIGHT_2007, simple cylindrical, 20 pixels per degree.",
-        "ramp": "heat"
+        "title": "Geologic units",
+        "source": "USGS geologic map of Mars, Tanaka and others 2014",
+        "low": "unit color",
+        "high": "unit color",
+        "note": "Each color is a rock unit from the 1:20,000,000 geologic map, drawn in the same simple-cylindrical frame as the Moon. Brown is the old southern highlands, green is the northern plains, and red and yellow are volcanic rock.",
+        "citation": "Tanaka, K. L., J. A. Skinner, J. M. Dohm, R. P. Irwin, E. J. Kolb, C. M. Fortezzo, T. Platz, G. G. Michael, and T. M. Hare (2014), Geologic map of Mars, USGS Scientific Investigations Map 3292. Rasterized from the published degree-coordinate shapefile.",
+        "ramp": "photo"
       },
       "weather": {
         "available": true,
