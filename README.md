@@ -60,7 +60,7 @@ dry land or sea floor.
 
 ## Other maps
 
-The web app can turn on elevation, temperature, ice and water, geology, weather, light, and radiation together. Each selected map shows its percentage of the mix. Hover a selected point or a found match to see its name. Under the maps, the match uses the earlier place cards: both places, their pictures, and the match percentage. A click still searches by elevation. The images are in `data/layers/` and are built by `python3 scripts/build_layers.py`.
+The web app can turn on elevation, temperature, ice and water, geology, weather, light, and radiation together. Each selected map shows its percentage of the mix. Hover a selected point or a found match to see its name and a picture of the spot. Under the maps, the match uses the earlier place cards: both places, their pictures, and the match percentage. A click still searches by elevation. The images are in `data/layers/` and are built by `python3 scripts/build_layers.py`.
 
 | Map | Earth | Moon | Mars |
 |---|---|---|---|

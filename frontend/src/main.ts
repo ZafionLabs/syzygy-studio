@@ -259,14 +259,17 @@ function hideCard() {
   $<HTMLElement>("#placecard").hidden = true;
 }
 
+let cardPoint = { x: 0, y: 0 };
+
 function moveCard(ev: MouseEvent) {
+  cardPoint = { x: ev.clientX, y: ev.clientY };
   const card = $<HTMLElement>("#placecard");
-  const width = card.offsetWidth || 120;
-  const height = card.offsetHeight || 32;
-  let left = ev.clientX + 12;
-  let top = ev.clientY + 14;
-  if (left + width > window.innerWidth - 8) left = Math.max(8, ev.clientX - width - 12);
-  if (top + height > window.innerHeight - 8) top = Math.max(8, ev.clientY - height - 12);
+  const width = card.offsetWidth || 220;
+  const height = card.offsetHeight || 180;
+  let left = ev.clientX + 14;
+  let top = ev.clientY + 16;
+  if (left + width > window.innerWidth - 8) left = Math.max(8, ev.clientX - width - 14);
+  if (top + height > window.innerHeight - 8) top = Math.max(8, ev.clientY - height - 16);
   card.style.left = `${left}px`;
   card.style.top = `${top}px`;
 }
@@ -347,12 +350,19 @@ function watchSpot(el: HTMLElement, site: Site, match: Match | null) {
 function openCard(ev: MouseEvent, site: Site, match: Match | null) {
   const token = ++cardToken;
   const card = $<HTMLElement>("#placecard");
+  const img = $<HTMLImageElement>("#spotImg");
   $("#spotName").textContent = placeName(site);
+  img.alt = placeName(site);
+  img.src = `/api/place-image?body=${bodyKey(site.body)}&lat=${site.lat.toFixed(3)}&lon=${site.lon.toFixed(3)}&km=120`;
+  img.onload = () => { if (token === cardToken) moveCard({ clientX: cardPoint.x, clientY: cardPoint.y } as MouseEvent); };
   card.hidden = false;
   moveCard(ev);
   showTwin(match ?? shownMatches.matches[0] ?? null);
   void placeFor(bodyKey(site.body), site.lat, site.lon).then((found) => {
-    if (token === cardToken) $("#spotName").textContent = found.name;
+    if (token !== cardToken) return;
+    $("#spotName").textContent = found.name;
+    img.alt = found.name;
+    if (found.photo) img.src = found.photo;
   }).catch(() => undefined);
 }
 
@@ -416,7 +426,7 @@ function place(body: string, lat: number, lon: number, cls: string, text: string
   el.style.left = `${((lon - b.lon_range[0]) / (b.lon_range[1] - b.lon_range[0])) * 100}%`;
   el.style.top = `${((b.lat_range[1] - lat) / (b.lat_range[1] - b.lat_range[0])) * 100}%`;
   el.textContent = text;
-  if (title) el.title = title;
+  if (title) el.dataset.label = title;
   el.style.transform = `translate(-50%, -50%) scale(${1 / viewOf(slot).zoom})`;
   $(`#map-${slot} .mapview`).appendChild(el);
   return el;
@@ -670,7 +680,10 @@ function renderPair() {
     $(`#hover-${slot}`).textContent = earthMode()
       ? (key === "earth" ? "Closest places on Earth show up here." : "Hover to read elevation. Click to find the closest places on Earth.")
       : `Hover to read elevation. Click to search ${bodies()[otherOf(key)].name}.`;
-    for (const lm of b.landmarks) place(key, lm.lat, lm.lon, "lm", lm.kind === "highest" ? "▲" : "▼", lm.name);
+    for (const lm of b.landmarks) {
+      const marker = place(key, lm.lat, lm.lon, "lm", lm.kind === "highest" ? "▲" : "▼", lm.name);
+      if (marker) watchSpot(marker, { body: b.name, lat: lm.lat, lon: lm.lon, surface: "", underwater: lm.kind === "lowest" && key === "earth", features: {} }, null);
+    }
   }
   $("#lmButtons").innerHTML = "";
   const buttonKeys = earthMode() ? Object.values(slots()).filter((k) => k !== "earth") : Object.values(slots());
@@ -712,7 +725,7 @@ function writeMixText() {
     ? `<p><b>Names on a selected point.</b> ${esc(PLACES.citation.earth)} ${esc(PLACES.citation.ocean)} ${esc(PLACES.citation.moon)}</p>`
     : "";
   $("#calib").innerHTML = mapHeading + elevationNotes + cited;
-  $("#layerNote").textContent = `${mixLine}. Hover a point to see its name. The match is under the maps. A click still searches elevation.`;
+  $("#layerNote").textContent = `${mixLine}. Hover a point to see its name and a picture. The match is under the maps. A click still searches elevation.`;
   for (const [slot, key] of Object.entries(slots())) {
     $(`#legend${slot}`).innerHTML = legendHtml(key);
     const info = bodies()[key];
