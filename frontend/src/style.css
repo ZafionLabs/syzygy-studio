@@ -61,6 +61,7 @@
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
   #breakdown td:first-child, #breakdown th:first-child { text-align: left; white-space: normal; }
   .note { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+  #calib p { margin: 0 0 8px; }
   .metric { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 13px; margin: 6px 0 12px; }
   .metric span:nth-child(odd) { color: var(--muted); }
   .good { color: var(--ok); } .bad { color: var(--hi); }

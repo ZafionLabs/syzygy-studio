@@ -71,6 +71,8 @@ type LayerInfo = {
   low?: string;
   high?: string;
   note: string;
+  citation?: string;
+  ramp?: "heat" | "rain" | "photo";
 };
 
 type LayerCatalog = {
@@ -104,6 +106,11 @@ const GRADIENTS: Record<string, string> = {
   earth: "linear-gradient(90deg,#000000,#1f4a7a,#2f8a7a,#5aa85a,#a8a855,#c8a87a,#fdfdfd)",
   moon: "linear-gradient(90deg,#00224e,#575d6d,#a59c74,#fee838)",
   mars: "linear-gradient(90deg,#000000,#7f4f32,#ff9f65,#ffc77f)",
+};
+const RAMPS: Record<string, string> = {
+  heat: "linear-gradient(90deg,#000004,#420a68,#932667,#dd513a,#fca50a,#fcffa4)",
+  rain: "linear-gradient(90deg,#102018,#1a7a32,#c8e020,#f0a020,#e02020)",
+  photo: "transparent",
 };
 const LANDMARK_LABELS: Record<string, string> = {
   "earth,highest": "Everest", "earth,lowest": "Mariana Trench",
@@ -359,7 +366,11 @@ function renderPair() {
     $(`#title${slot}`).textContent = b.name;
     $(`#min${slot}`).textContent = missing ? "" : thematic?.available ? (thematic.low || "") : fmtM(b.color_min_m);
     $(`#max${slot}`).textContent = missing ? "" : thematic?.available ? (thematic.high || "") : fmtM(b.color_max_m);
-    $(`#bar${slot}`).style.background = missing ? "transparent" : (GRADIENTS[key] || GRADIENTS.moon);
+    $(`#bar${slot}`).style.background = missing
+      ? "transparent"
+      : thematic?.available
+        ? (RAMPS[thematic.ramp || ""] || GRADIENTS[key])
+        : (GRADIENTS[key] || GRADIENTS.moon);
     $(`#range${slot}`).textContent = missing
       ? ""
       : thematic?.available
@@ -381,14 +392,27 @@ function renderPair() {
       $("#lmButtons").appendChild(btn);
     }
   }
-  $("#calib").textContent = Object.values(slots()).map((key) => {
+  const elevationNotes = Object.values(slots()).map((key) => {
     const b = bodies()[key], c = b.calibration;
-    return `${b.name}: ${b.source_name}\n` + ["highest", "lowest"].map((k) => {
+    return `<p><b>${esc(b.name)} elevation.</b> ${esc(b.source_name)}</p>` + ["highest", "lowest"].map((k) => {
       const e = c[k];
-      return `  ${k === "highest" ? "▲" : "▼"} ${e.landmark}: real ${fmtM(e.real_elevation_m)}; the map reads ${fmtM(e.map_elevation_at_real_location_m)} there. ` +
-        `The map's ${k} point is ${Math.round(e.map_pixel_offset_km).toLocaleString()} km away.`;
-    }).join("\n");
-  }).join("\n\n");
+      return `<p>${k === "highest" ? "▲" : "▼"} ${esc(e.landmark)}: real ${fmtM(e.real_elevation_m)}; the elevation map reads ${fmtM(e.map_elevation_at_real_location_m)} there. ` +
+        `The map's ${k} point is ${Math.round(e.map_pixel_offset_km).toLocaleString()} km away.</p>`;
+    }).join("");
+  }).join("");
+  const shown = Object.values(slots()).map((key) => {
+    const item = LAYERS?.bodies[key]?.[layerId];
+    if (layerId === "elevation" || !item) return "";
+    const name = bodies()[key].name;
+    if (!item.available) return `<p><b>${esc(name)}.</b> ${esc(item.note)}</p>`;
+    return `<p><b>${esc(name)} — ${esc(item.title || "")}.</b> ${esc(item.source || "")}</p>` +
+      `<p>${esc(item.note)}</p>` +
+      (item.citation ? `<p>${esc(item.citation)}</p>` : "");
+  }).join("");
+  const mapHeading = layerId === "elevation"
+    ? ""
+    : `<p><b>This map.</b> A click still searches the elevation data below.</p>${shown}`;
+  $("#calib").innerHTML = mapHeading + elevationNotes;
   const note = $("#layerNote");
   if (layerId === "elevation") {
     note.textContent = "Elevation. Lightest is highest and darkest is lowest. A click still searches this terrain on every map.";

@@ -64,12 +64,14 @@ The web app can switch the globes from elevation to temperature, ice and water, 
 
 | Map | Earth | Moon | Mars |
 |---|---|---|---|
-| Temperature | MERRA-2 air temperature, July 2024 | LRO Diviner temperature variation, 60°S–60°N | THEMIS nighttime infrared |
-| Ice and water | Ocean from ETOPO1, AMSR2 sea ice, MODIS snow | not included | TES albedo frost poleward of 65° |
-| Geology | CRUST1.0 crustal thickness | Diviner rock abundance, 60°S–60°N | TES thermal inertia, 60°N–50°S |
-| Weather | IMERG precipitation, 15 July 2024 | no atmosphere | not included |
+| Temperature | MERRA-2 air temperature, July 2024 | Diviner hottest temperature, full globe | TES afternoon temperature, Mars Year 25 |
+| Ice and water | Ocean from ETOPO1, AMSR2 sea ice, MODIS snow | Diviner coldest temperature (ice below ~110 K) | Odyssey epithermal neutrons (hydrogen) |
+| Geology | CRUST1.0 crustal thickness | USGS unified geologic units, 2020 | TES night thermal inertia, full globe, 2007 |
+| Weather | IMERG precipitation, 15 July 2024 | Diviner day–night temperature swing (no atmosphere) | TES dust opacity, Mars Year 25 |
 | Light | Blue Marble, August 2004 | LRO WAC mosaic | Viking MDIM color mosaic |
-| Radiation | CERES outgoing longwave, July 2018 | not included | not included |
+| Radiation | CERES outgoing longwave, July 2018 | Diviner midnight heat radiation | Odyssey fast neutrons |
+
+The source line for the map on screen is written under **Data sources and landmarks**. `python3 scripts/replace_layers.py` rebuilds the Moon and Mars maps other than the two mosaics.
 
 ## Usage
 

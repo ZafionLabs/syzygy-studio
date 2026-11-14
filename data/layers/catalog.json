@@ -37,7 +37,9 @@
         "source": "NASA GIBS / MERRA-2 monthly, July 2024",
         "low": "colder",
         "high": "warmer",
-        "note": "July 2024 monthly air temperature about 2 m above the surface. Yellow and red are warmer; blue and purple are colder."
+        "note": "July 2024 monthly air temperature about 2 m above the surface. Yellow and red are warmer; blue and purple are colder.",
+        "citation": "Gelaro, R., and others (2017), The Modern-Era Retrospective Analysis for Research and Applications, Version 2 (MERRA-2), Journal of Climate. Map: NASA GIBS layer MERRA2_2m_Air_Temperature_Monthly, July 2024.",
+        "ramp": "heat"
       },
       "ice-water": {
         "available": true,
@@ -45,7 +47,9 @@
         "source": "ETOPO1 plus AMSR2 sea ice (March 2024) and MODIS snow (15 Jan 2024)",
         "low": "open water",
         "high": "ice or snow",
-        "note": "Blue is ocean and brown is land, from ETOPO1. Sea ice is the March 2024 AMSR2 concentration. Snow is the 15 January 2024 MODIS snow cover, including the Antarctic ice sheet."
+        "note": "Blue is ocean and brown is land, from ETOPO1. Sea ice is the March 2024 AMSR2 concentration. Snow is the 15 January 2024 MODIS snow cover, including the Antarctic ice sheet.",
+        "citation": "Amante, C., and B. W. Eakins (2009), ETOPO1 1 arc-minute global relief, NOAA. Sea ice: JAXA AMSR2 via NASA GIBS AMSRU2_Sea_Ice_Concentration_25km, March 2024. Snow: NASA MODIS Terra NDSI snow cover, 15 January 2024.",
+        "ramp": "photo"
       },
       "geology": {
         "available": true,
@@ -53,7 +57,9 @@
         "source": "CRUST1.0, Laske, Masters, Ma, and Pasyanos 2013",
         "low": "thinner crust",
         "high": "thicker crust",
-        "note": "Thickness of ice, sediment, and crystalline crust, with the ocean water left out. Ocean crust is thin; continents and mountains are thick."
+        "note": "Thickness of ice, sediment, and crystalline crust, with the ocean water left out. Ocean crust is thin; continents and mountains are thick.",
+        "citation": "Laske, G., G. Masters, Z. Ma, and M. Pasyanos (2013), Update on CRUST1.0, a 1-degree global model of Earth's crust. Geophysical Research Abstracts 15, EGU2013-2658.",
+        "ramp": "heat"
       },
       "weather": {
         "available": true,
@@ -61,7 +67,9 @@
         "source": "NASA GIBS / IMERG, 15 July 2024",
         "low": "little precipitation",
         "high": "heavy precipitation",
-        "note": "One day of NASA IMERG precipitation. Green is lighter rain and red is heavier. Dark areas had little or no precipitation that day."
+        "note": "One day of NASA IMERG precipitation. Green is lighter rain and red is heavier. Dark areas had little or no precipitation that day.",
+        "citation": "Huffman, G. J., and others, NASA IMERG. Map: NASA GIBS layer IMERG_Precipitation_Rate for 15 July 2024.",
+        "ramp": "rain"
       },
       "light": {
         "available": true,
@@ -69,7 +77,9 @@
         "source": "NASA Blue Marble Next Generation, August 2004",
         "low": "darker surface",
         "high": "brighter surface",
-        "note": "Cloud-free view of reflected sunlight. Ice and desert are bright; forest and ocean are darker."
+        "note": "Cloud-free view of reflected sunlight. Ice and desert are bright; forest and ocean are darker.",
+        "citation": "St\u00f6ckli, R., E. Vermote, N. Saleous, R. Simmon, and D. Herring, The Blue Marble Next Generation, NASA. Map: NASA GIBS BlueMarble_NextGeneration, August 2004.",
+        "ramp": "photo"
       },
       "radiation": {
         "available": true,
@@ -77,33 +87,51 @@
         "source": "NASA CERES EBAF, July 2018",
         "low": "less heat leaving",
         "high": "more heat leaving",
-        "note": "Heat radiation leaving the top of the atmosphere in July 2018. Deserts and the tropics radiate more; Antarctica radiates less."
+        "note": "Heat radiation leaving the top of the atmosphere in July 2018. Deserts and the tropics radiate more; Antarctica radiates less.",
+        "citation": "Loeb, N. G., and others, CERES Energy Balanced and Filled top-of-atmosphere fluxes. Map: NASA GIBS CERES_EBAF_TOA_Longwave_Flux_All_Sky_Monthly, July 2018.",
+        "ramp": "heat"
       }
     },
     "moon": {
       "temperature": {
         "available": true,
-        "title": "Regolith temperature variation",
-        "source": "LRO Diviner average, PDS browse dgdr_st_avg",
-        "low": "smaller variation",
-        "high": "larger variation",
-        "note": "Diviner average regolith temperature variation from 60\u00b0S to 60\u00b0N. The poles are outside this browse image, so they are left dark."
+        "title": "Hottest surface temperature",
+        "source": "LRO Diviner bolometric maximum, 2009\u20132015",
+        "low": "colder",
+        "high": "hotter",
+        "note": "The hottest temperature Diviner recorded in each 0.5\u00b0 cell, from July 2009 through April 2015. Dark maria get hotter than the bright highlands. The poles are included.",
+        "citation": "Williams, J.-P., D. A. Paige, B. T. Greenhagen, and E. Sefton-Nash (2017), The global surface temperatures of the Moon as measured by the Diviner Lunar Radiometer Experiment, Icarus 283, 300\u2013325.",
+        "ramp": "heat"
       },
       "ice-water": {
-        "available": false,
-        "note": "There is no separate global ice map in this set. Water ice can persist in the coldest polar shadows, and those latitudes are outside the Diviner browse image."
+        "available": true,
+        "title": "Coldest surface temperature",
+        "source": "LRO Diviner bolometric minimum, 2009\u20132015",
+        "low": "warmer",
+        "high": "colder, ice can persist",
+        "note": "The coldest temperature in each cell. Water ice is stable where the surface stays below about 110 K, which on this map is the bright polar ground. Most of the Moon is too warm.",
+        "citation": "Williams, J.-P., and others (2017), Icarus 283, 300\u2013325, minimum bolometric temperature. Ice stability near 110 K: Paige, D. A., and others (2010), Science 330, 479\u2013482.",
+        "ramp": "heat"
       },
       "geology": {
         "available": true,
-        "title": "Rock abundance",
-        "source": "LRO Diviner average rock abundance, PDS browse dgdr_ra_avg",
-        "low": "fewer rocks",
-        "high": "more rocks",
-        "note": "Fraction of the surface covered by exposed rock, from 60\u00b0S to 60\u00b0N. Fresh craters show up as small bright spots. The poles are outside this browse image."
+        "title": "Geologic units",
+        "source": "USGS unified geologic map, Fortezzo, Spudis, and Harrel 2020",
+        "low": "unit color",
+        "high": "unit color",
+        "note": "Each color is a rock unit on the 1:5,000,000 unified map, drawn in the same simple-cylindrical frame as the other Moon maps. Maria, highlands, and crater ejecta are separate colors.",
+        "citation": "Fortezzo, C. M., P. D. Spudis, and S. L. Harrel (2020), Release of the digital unified global geologic map of the Moon at 1:5,000,000 scale. USGS raster, simple cylindrical, public domain.",
+        "ramp": "photo"
       },
       "weather": {
-        "available": false,
-        "note": "The Moon has no atmosphere, so it has no weather."
+        "available": true,
+        "title": "Day\u2013night temperature swing",
+        "source": "LRO Diviner maximum minus minimum, 2009\u20132015",
+        "low": "smaller change",
+        "high": "larger change",
+        "note": "The Moon has no atmosphere, so it has no wind, clouds, or storms. This is the change from the coldest to the hottest temperature of the ground, which is how the surface environment changes through a lunar day.",
+        "citation": "Williams, J.-P., and others (2017), Icarus 283, 300\u2013325. The map is the Diviner bolometric maximum minus the minimum on the same 0.5\u00b0 grid.",
+        "ramp": "heat"
       },
       "light": {
         "available": true,
@@ -111,41 +139,61 @@
         "source": "USGS / LRO WAC global mosaic",
         "low": "darker maria",
         "high": "brighter highlands",
-        "note": "Lunar Reconnaissance Orbiter Wide Angle Camera mosaic. The dark maria are basaltic lava; the highlands are brighter."
+        "note": "Lunar Reconnaissance Orbiter Wide Angle Camera mosaic. The dark maria are basaltic lava; the highlands are brighter.",
+        "citation": "USGS Astrogeology WMS, Lunar Reconnaissance Orbiter Wide Angle Camera global mosaic, simple cylindrical.",
+        "ramp": "photo"
       },
       "radiation": {
-        "available": false,
-        "note": "No global surface radiation-dose map is included. The Moon has no global magnetic field, so cosmic rays reach the surface almost everywhere."
+        "available": true,
+        "title": "Heat leaving at midnight",
+        "source": "LRO Diviner local midnight temperature, 2009\u20132015",
+        "low": "less heat leaving",
+        "high": "more heat leaving",
+        "note": "Infrared power the surface radiates at local midnight, from the measured midnight temperature. Rock stays warmer, and radiates more, than dust. This is heat radiation, not a cosmic-ray dose.",
+        "citation": "Williams, J.-P., and others (2017), Icarus 283, 300\u2013325, bolometric temperature at local hour 0. Power is \u03c3T\u2074 with \u03c3 = 5.67\u00d710\u207b\u2078 W/m\u00b2/K\u2074.",
+        "ramp": "heat"
       }
     },
     "mars": {
       "temperature": {
         "available": true,
-        "title": "Nighttime infrared",
-        "source": "USGS / Mars Odyssey THEMIS IR night mosaic",
-        "low": "cooler at night",
-        "high": "warmer at night",
-        "note": "THEMIS nighttime infrared. Rock stays warmer after sunset than dust does. The polar regions are not in this mosaic, so they are left dark."
+        "title": "Afternoon surface temperature",
+        "source": "MGS TES afternoon temperature, Mars Year 25",
+        "low": "colder",
+        "high": "warmer",
+        "note": "Surface temperature retrieved from TES infrared spectra near 14:00 local time, averaged in 5\u00b0 cells across Mars Year 25. Empty cells, mostly near the winter pole of a given season, are dark.",
+        "citation": "Smith, M. D. (2004), Interannual variability in TES atmospheric observations of Mars, Icarus 167, 148\u2013165. Values from the NASA PDS TES column-opacity bundle (Montabone, Smith, Wolff, and Cantor) for all of Mars Year 25.",
+        "ramp": "heat"
       },
       "ice-water": {
         "available": true,
-        "title": "Frost and ice",
-        "source": "MGS TES bolometric albedo, Christensen 2001",
-        "low": "bare ground",
-        "high": "frost or ice",
-        "note": "TES bolometric albedo of 0.28 or higher, kept only poleward of 65\u00b0. That leaves the polar caps and leaves out the bright tropical dust. Bare ground is dark."
+        "title": "Hydrogen and water ice",
+        "source": "Mars Odyssey neutron spectrometer, epithermal neutrons",
+        "low": "less hydrogen",
+        "high": "more hydrogen",
+        "note": "Fewer epithermal neutrons means more hydrogen in the top metre of soil. In these first 25.7 days of mapping the southern high latitudes are the strong hydrogen signal. The unmeasured polar rows are dark.",
+        "citation": "Feldman, W. C., and others (2002), Global distribution of neutrons from Mars: results from Mars Odyssey, Science 297, 75\u201378. NASA PDS table ns_epithermal_020917.",
+        "ramp": "heat"
       },
       "geology": {
         "available": true,
-        "title": "Thermal inertia",
-        "source": "MGS TES thermal inertia, Mellon et al., 60\u00b0N to 50\u00b0S",
+        "title": "Nighttime thermal inertia",
+        "source": "MGS TES nightside thermal inertia, Putzig and Mellon 2007",
         "low": "dust",
-        "high": "rock or crust",
-        "note": "How quickly the ground takes up and releases heat, in J per square metre per kelvin per square-root second. Dust is low; rock and duricrust are high. The far north and south are outside this map."
+        "high": "rock or duricrust",
+        "note": "How fast the ground takes up and gives off heat, over the whole planet. Dust is low; rock and duricrust are high. A colored geologic-unit plate in this projection is not the map used here, because the published unit sheet is not simple cylindrical and would put clicks in the wrong place.",
+        "citation": "Putzig, N. E., and M. T. Mellon (2007), Apparent thermal inertia and the surface heterogeneity of Mars, Icarus 191, 68\u201394. NASA PDS map GLOBAL_TI_NIGHT_2007, simple cylindrical, 20 pixels per degree.",
+        "ramp": "heat"
       },
       "weather": {
-        "available": false,
-        "note": "No global daily weather image is included. Dust storms are the main weather on Mars."
+        "available": true,
+        "title": "Dust in the atmosphere",
+        "source": "MGS TES column dust optical depth, Mars Year 25",
+        "low": "clearer air",
+        "high": "more dust",
+        "note": "Dust opacity at 9.3 \u03bcm, averaged in 5\u00b0 cells across Mars Year 25. Southern summer raises the dust. Empty cells are dark.",
+        "citation": "Montabone, L., and others (2015), Eight-year climatology of dust optical depth on Mars, Icarus 251, 65\u201395. Retrievals: NASA PDS TES infrared column dust optical depth for all of Mars Year 25.",
+        "ramp": "heat"
       },
       "light": {
         "available": true,
@@ -153,11 +201,19 @@
         "source": "USGS / Viking MDIM 2.1 color mosaic",
         "low": "darker surface",
         "high": "brighter surface",
-        "note": "Viking orbiter color mosaic. The bright spots at the poles are ice. Hellas is the bright basin in the south."
+        "note": "Viking orbiter color mosaic. The bright spots at the poles are ice. Hellas is the bright basin in the south.",
+        "citation": "USGS Astrogeology WMS, Viking Mars Digital Image Model 2.1 color mosaic, simple cylindrical.",
+        "ramp": "photo"
       },
       "radiation": {
-        "available": false,
-        "note": "No global surface radiation-dose map is included. Mars Odyssey and Curiosity measured radiation along their paths, not as a full-planet map."
+        "available": true,
+        "title": "Fast neutrons from cosmic rays",
+        "source": "Mars Odyssey neutron spectrometer, fast neutrons",
+        "low": "fewer fast neutrons",
+        "high": "more fast neutrons",
+        "note": "Fast neutrons made when cosmic rays hit the surface. High ground such as Olympus Mons has a thinner atmosphere overhead, so more fast neutrons escape. This is a measured neutron flux, not a dose in milligray.",
+        "citation": "Feldman, W. C., and others (2002), Science 297, 75\u201378. NASA PDS table ns_fast_020917, the first 25.7 days of mapping.",
+        "ramp": "heat"
       }
     }
   }

@@ -260,8 +260,11 @@ def test_web_api_round_trip():
         assert [item["label"] for item in layers["layers"]] == [
             "Elevation", "Temperature", "Ice and water", "Geology", "Weather", "Light", "Radiation",
         ]
-        assert layers["bodies"]["moon"]["weather"]["available"] is False
+        assert layers["bodies"]["moon"]["weather"]["available"] is True
+        assert layers["bodies"]["moon"]["weather"]["citation"]
+        assert layers["bodies"]["mars"]["radiation"]["available"] is True
         assert urlopen(base + "/map/layer/earth/temperature.png").read().startswith(b"\x89PNG")
+        assert urlopen(base + "/map/layer/mars/weather.png").read().startswith(b"\x89PNG")
         info = json.load(urlopen(base + "/api/info"))
         assert info["sources"]["images"]["bodies"]["earth"]["color_max_m"] == pytest.approx(8848.86)
         res = json.load(urlopen(base + "/api/query?body=moon&lat=10&lon=20&k=3&mode=elevation&surface=underwater"))
