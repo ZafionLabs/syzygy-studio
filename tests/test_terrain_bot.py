@@ -386,6 +386,21 @@ def test_prepare_map_refuses_pictures():
         assert placed["file"] == "moon_radiation.png"
 
 
+def test_prepare_map_refuses_a_different_body():
+    from terrain_bot.updates import prepare_map
+
+    mars = (DATA / "mars_heightmap.png").read_bytes()
+    with pytest.raises(ValueError, match="looks like Mars, not the Moon"):
+        prepare_map("moon", "elevation", mars, "mars.png")
+    placed = prepare_map("mars", "elevation", mars, "mars.png")
+    assert placed["file"] == "mars_elevation.npz"
+    geology = (DATA / "layers" / "mars_geology.png").read_bytes()
+    with pytest.raises(ValueError, match="looks like Mars, not the Moon"):
+        prepare_map("moon", "geology", geology, "mars_geology.png")
+    moon = (DATA / "layers" / "moon_geology.png").read_bytes()
+    assert prepare_map("moon", "geology", moon, "moon_geology.png")["file"] == "moon_geology.png"
+
+
 def test_new_map_replaces_the_bundled_one(tmp_path, monkeypatch):
     import json
     import threading
