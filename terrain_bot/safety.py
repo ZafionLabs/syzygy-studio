@@ -148,6 +148,20 @@ def radiation_line(body: str, radiation: float) -> str:
     return f"Heat leaving the top of the atmosphere is {pct:.0f}% of the way from the lowest to the highest."
 
 
+def high_risk(hazard: float, sunlight: float, shadow: float, radiation: float, water: bool = False, slope: float = 0.0) -> list[str]:
+    """Factor names that are dangerous at this spot. Empty when every factor is moderate."""
+    flags = []
+    if hazard >= 0.6 or water or slope >= 15:
+        flags.append("hazard")
+    if sunlight < 0.25:
+        flags.append("sunlight")
+    if shadow >= 0.55:
+        flags.append("shadow")
+    if radiation >= 0.75:
+        flags.append("radiation")
+    return flags
+
+
 def danger_lines(body: str, slope: float, roughness: float, sunlight: float, shadow: float, radiation: float, water: bool) -> list[str]:
     lines = []
     if water:
@@ -204,6 +218,7 @@ def describe_cell(hm: Heightmap, grid: SafetyGrid, lat: float, lon: float, weigh
             weights,
         ),
         "dangers": danger_lines(hm.body.name, slope, roughness, sunlight, shadow, radiation, water),
+        "high_risk": high_risk(hazard, sunlight, shadow, radiation, water, slope),
         "radiation_note": {
             "Moon": "Midnight heat the ground radiates. Rock that stays warm scores higher.",
             "Mars": "Fast neutrons made when cosmic rays hit the surface. A thinner sky lets more neutrons out.",

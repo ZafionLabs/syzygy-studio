@@ -61,6 +61,7 @@
   .twin-safety li { margin: 0 0 4px; }
   #safetyBar input[type="range"] { width: 88px; padding: 0; accent-color: var(--ok); }
   #safetyBar output { min-width: 1.6em; color: var(--text); }
+  .risk, .bad { color: var(--hi); font-weight: 700; }
   .twin .role { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
   @media (max-width: 800px) { .twin, .twin-safety { grid-template-columns: 1fr; } }
   .mix { display: flex; flex-wrap: wrap; gap: 8px; }

@@ -68,6 +68,7 @@ type SafetyCell = {
   roughness_m: number;
   water: boolean;
   dangers: string[];
+  high_risk: string[];
   radiation_note: string;
 };
 
@@ -199,6 +200,39 @@ const PRESETS: Record<string, Priorities> = {
 function priorities(): Priorities {
   const num = (id: string) => Number((document.querySelector(id) as HTMLInputElement).value) || 0;
   return { hazard: num("#priHazard"), sun: num("#priSun"), shadow: num("#priShadow"), rad: num("#priRad") };
+}
+
+const RISK_LABELS: Record<string, string> = { hazard: "Hazards", sun: "Sunlight", shadow: "Shadows", rad: "Radiation" };
+
+function highRisks(cell: { hazard: number; sun: number; shadow: number; rad: number }) {
+  const flags: string[] = [];
+  if (cell.hazard >= 0.6) flags.push("hazard");
+  if (cell.sun < 0.25) flags.push("sun");
+  if (cell.shadow >= 0.55) flags.push("shadow");
+  if (cell.rad >= 0.75) flags.push("rad");
+  return flags;
+}
+
+function showHighRisk(flags: string[]) {
+  for (const key of Object.keys(RISK_LABELS)) {
+    $(`#risk${key.charAt(0).toUpperCase()}${key.slice(1)}`).hidden = !flags.includes(key);
+  }
+}
+
+function highRiskSentence(flags: string[]) {
+  if (!flags.length) return "";
+  return flags.map((key) => `${RISK_LABELS[key]}: high risk.`).join(" ");
+}
+
+function factorRows(cell: SafetyCell) {
+  const rows: [string, boolean, string][] = [
+    ["Hazards", cell.high_risk?.includes("hazard"), `slope ${cell.slope_deg.toFixed(0)}°`],
+    ["Sunlight", cell.high_risk?.includes("sunlight"), `${Math.round(cell.sunlight * 100)}% of the year`],
+    ["Shadows", cell.high_risk?.includes("shadow"), `${Math.round(cell.shadow * 100)}% in shadow`],
+    ["Radiation", cell.high_risk?.includes("radiation"), `${Math.round(cell.radiation * 100)}% of this body's range`],
+  ];
+  return rows.map(([name, high, detail]) =>
+    `<div class="part"><span>${name}</span><span>${high ? `<b class="bad">High risk</b> ` : ""}${esc(detail)}</span></div>`).join("");
 }
 
 function landingSafety(cell: { hazard: number; sun: number; shadow: number; rad: number }, weights = priorities()) {
@@ -641,9 +675,10 @@ async function fillTwinSafety(match: Match, token: number) {
     const card = (title: string, cell: SafetyCell) => {
       const score = landingSafety({ hazard: cell.hazard, sun: cell.sunlight, shadow: cell.shadow, rad: cell.radiation });
       const heading = score == null ? title : `${title}: ${score.toFixed(0)}% safe with your priorities`;
-      return `<div><h3>${esc(heading)}</h3><ul>${cell.dangers.map((line) => `<li>${esc(line)}</li>`).join("")}</ul><p class="note">${esc(cell.radiation_note)}</p></div>`;
+      return `<div><h3>${esc(heading)}</h3><div class="twin-parts">${factorRows(cell)}</div><ul>${cell.dangers.map((line) => `<li>${esc(line)}</li>`).join("")}</ul><p class="note">${esc(cell.radiation_note)}</p></div>`;
     };
     box.innerHTML = card(match.a.body, left) + card(match.b.body, right);
+    showHighRisk(highRisks({ hazard: right.hazard, sun: right.sunlight, shadow: right.shadow, rad: right.radiation }));
   } catch {
     if (token === twinToken) box.innerHTML = "";
   }
@@ -670,8 +705,11 @@ function openCard(ev: MouseEvent, site: Site, match: Match | null) {
   showTwin(match ?? shownMatches.matches[0] ?? null);
   void api<SafetyCell>(`/api/safety?body=${bodyKey(site.body)}&lat=${site.lat}&lon=${site.lon}`).then((cell) => {
     if (token !== cardToken) return;
-    const score = landingSafety({ hazard: cell.hazard, sun: cell.sunlight, shadow: cell.shadow, rad: cell.radiation });
-    $("#spotSafety").textContent = `${score == null ? "Set a priority to score this spot." : `${score.toFixed(0)}% safe with your priorities.`} ${cell.dangers[0] || ""}`;
+    const levels = { hazard: cell.hazard, sun: cell.sunlight, shadow: cell.shadow, rad: cell.radiation };
+    const score = landingSafety(levels);
+    const risks = highRiskSentence(highRisks(levels));
+    $("#spotSafety").textContent = `${score == null ? "" : `${score.toFixed(0)}% safe with your priorities. `}${risks}`.trim();
+    showHighRisk(highRisks(levels));
   }).catch(() => undefined);
   void placeFor(bodyKey(site.body), site.lat, site.lon).then((found) => {
     if (token !== cardToken) return;
@@ -903,10 +941,13 @@ function wireMap(slot: string) {
       try {
         const h = await api<{ surface: string; safety?: SafetyCell }>(`/api/height?body=${body}&lat=${lat}&lon=${lon}&source=${source()}`);
         const safety = h.safety;
-        const score = safety ? landingSafety({ hazard: safety.hazard, sun: safety.sunlight, shadow: safety.shadow, rad: safety.radiation }) : null;
+        const levels = safety ? { hazard: safety.hazard, sun: safety.sunlight, shadow: safety.shadow, rad: safety.radiation } : null;
+        const flags = levels ? highRisks(levels) : [];
+        showHighRisk(flags);
+        const score = levels ? landingSafety(levels) : null;
         const scoreText = score == null ? "" : ` Landing safety ${score.toFixed(0)}% with your priorities.`;
-        const facts = safety ? ` ${safety.dangers.slice(0, 4).join(" ")}` : "";
-        $(`#hover-${slot}`).textContent = `${fmtLL(lat, lon)}: ${h.surface}.${scoreText}${facts}`;
+        const risks = flags.length ? ` ${highRiskSentence(flags)}` : "";
+        $(`#hover-${slot}`).textContent = `${fmtLL(lat, lon)}: ${h.surface}.${scoreText}${risks}`;
       } catch { /* hover is best-effort */ }
     }, 60);
   });

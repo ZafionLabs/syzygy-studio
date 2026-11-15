@@ -337,6 +337,11 @@ def test_landing_safety_marks_cliffs_water_and_priorities():
     flat_score = landing_safety(grid, {"hazard": 100, "sunlight": 0, "shadow": 0, "radiation": 0}, 2, 2)
     steep_score = landing_safety(grid, {"hazard": 100, "sunlight": 0, "shadow": 0, "radiation": 0}, 2, 9)
     assert flat_score > 80 and steep_score < 40
+    from terrain_bot.safety import describe_cell
+    steep = describe_cell(moon, grid, moon.latlon_of(2, 9)[0], moon.latlon_of(2, 9)[1])
+    flat = describe_cell(moon, grid, moon.latlon_of(2, 2)[0], moon.latlon_of(2, 2)[1])
+    assert "hazard" in steep["high_risk"]
+    assert "hazard" not in flat["high_risk"]
 
     sea = np.full((12, 16), 100.0)
     sea[:, :8] = -2000
