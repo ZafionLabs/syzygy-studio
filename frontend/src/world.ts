@@ -664,6 +664,149 @@ function fmtM(metres: number) {
   return `${sign}${Math.abs(Math.round(metres)).toLocaleString()} m`;
 }
 
+type Swatch = { color: string; label: string };
+
+const INFERNO: Swatch[] = [
+  { color: "#000004", label: "" },
+  { color: "#bb3754", label: "" },
+  { color: "#fcfea4", label: "" },
+];
+
+function heatRows(low: string, high: string): Swatch[] {
+  return [
+    { color: INFERNO[0].color, label: low },
+    { color: INFERNO[1].color, label: "in between" },
+    { color: INFERNO[2].color, label: high },
+  ];
+}
+
+function legendFor(body: string): { title: string; rows: Swatch[] } {
+  const named: Record<string, Record<string, { title: string; rows: Swatch[] }>> = {
+    earth: {
+      elevation: {
+        title: "Elevation",
+        rows: [
+          { color: "#215e7b", label: "Deep ocean" },
+          { color: "#44984a", label: "Low ground" },
+          { color: "#b7b55e", label: "High ground" },
+          { color: "#fdfafa", label: "Highest peaks" },
+        ],
+      },
+      temperature: {
+        title: "Air temperature",
+        rows: [
+          { color: "#5e4fa2", label: "Colder" },
+          { color: "#e55749", label: "Warm" },
+          { color: "#fee593", label: "Warmer" },
+        ],
+      },
+      "ice-water": {
+        title: "Ice and water",
+        rows: [
+          { color: "#0e305c", label: "Ocean" },
+          { color: "#5c4a30", label: "Land" },
+          { color: "#ffffff", label: "Ice or snow" },
+        ],
+      },
+      geology: {
+        title: "Geology",
+        rows: [
+          { color: "#184e91", label: "Ocean" },
+          { color: "#bad6e6", label: "Ice" },
+          { color: "#92dcb7", label: "A rock unit" },
+        ],
+      },
+      weather: {
+        title: "Rain and snow",
+        rows: [
+          { color: "#82aaa8", label: "Lighter rain" },
+          { color: "#c2da0b", label: "Heavier rain" },
+          { color: "#e75623", label: "Heaviest rain" },
+        ],
+      },
+      light: {
+        title: "Reflected sunlight",
+        rows: [
+          { color: "#020514", label: "Ocean and forest" },
+          { color: "#b2895d", label: "Desert" },
+          { color: "#f1f3f2", label: "Ice" },
+        ],
+      },
+      radiation: {
+        title: "Heat leaving Earth",
+        rows: [
+          { color: "#440154", label: "Less heat leaving" },
+          { color: "#2b7100", label: "In between" },
+          { color: "#f5fa0a", label: "More heat leaving" },
+        ],
+      },
+    },
+    moon: {
+      elevation: {
+        title: "Elevation",
+        rows: [
+          { color: "#00224d", label: "Lowest ground" },
+          { color: "#7c7b78", label: "Middle" },
+          { color: "#fde737", label: "Highest ground" },
+        ],
+      },
+      geology: {
+        title: "Geology",
+        rows: [
+          { color: "#f20d0d", label: "A rock unit" },
+          { color: "#fcdc0a", label: "A different unit" },
+          { color: "#a6d6ff", label: "A different unit" },
+        ],
+      },
+      light: {
+        title: "Reflected sunlight",
+        rows: [
+          { color: "#222222", label: "Dark maria" },
+          { color: "#8a8a8a", label: "Brighter highlands" },
+        ],
+      },
+    },
+    mars: {
+      elevation: {
+        title: "Elevation",
+        rows: [
+          { color: "#000000", label: "Lowest ground" },
+          { color: "#8e5939", label: "Middle" },
+          { color: "#ffc77e", label: "Highest ground" },
+        ],
+      },
+      geology: {
+        title: "Geology",
+        rows: [
+          { color: "#a86c44", label: "Southern highlands" },
+          { color: "#7eac54", label: "Northern plains" },
+          { color: "#dc404e", label: "Volcanic rock" },
+          { color: "#ffd640", label: "Volcanic rock" },
+        ],
+      },
+      weather: {
+        title: "Dust storm",
+        rows: [
+          { color: "#280b53", label: "Clearer air" },
+          { color: "#fcfea4", label: "Thick dust" },
+        ],
+      },
+      light: {
+        title: "Reflected sunlight",
+        rows: [
+          { color: "#584646", label: "Darker ground" },
+          { color: "#d8d0c8", label: "Ice at the poles" },
+        ],
+      },
+    },
+  };
+  const direct = named[body]?.[layer];
+  if (direct) return direct;
+  const fact = facts[body]?.[layer];
+  if (fact) return { title: fact.title, rows: heatRows(fact.low, fact.high) };
+  return { title: layer, rows: [] };
+}
+
 function paintLegend() {
   const box = $<HTMLElement>("#worldLegend");
   const spot = currentSpot();
@@ -672,30 +815,10 @@ function paintLegend() {
     return;
   }
   box.hidden = false;
-  const key = bodyKey(spot.body);
-  const fact = facts[key]?.[layer];
-  const bar = $<HTMLElement>("#legendBar");
-  const low = $<HTMLElement>("#legendLow");
-  const high = $<HTMLElement>("#legendHigh");
-  if (layer === "elevation") {
-    $<HTMLElement>("#legendTitle").textContent = "Elevation";
-    bar.hidden = false;
-    bar.className = `legend-elev-${key}`;
-    low.textContent = fmtM(ground.low_m);
-    high.textContent = fmtM(ground.high_m);
-  } else if (fact && fact.ramp !== "photo" && fact.low !== fact.high) {
-    $<HTMLElement>("#legendTitle").textContent = fact.title;
-    bar.hidden = false;
-    bar.className = fact.ramp === "rain" ? "legend-rain" : "legend-heat";
-    low.textContent = fact.low;
-    high.textContent = fact.high;
-  } else {
-    $<HTMLElement>("#legendTitle").textContent = fact?.title || layer;
-    bar.hidden = true;
-    bar.className = "";
-    low.textContent = fact?.low === fact?.high ? "" : (fact?.low || "");
-    high.textContent = fact?.low === fact?.high ? "" : (fact?.high || "");
-  }
+  const legend = legendFor(bodyKey(spot.body));
+  $<HTMLElement>("#legendTitle").textContent = legend.title;
+  $<HTMLElement>("#legendItems").innerHTML = legend.rows.map((row) =>
+    `<li><i style="background:${row.color}"></i><span>${row.label.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] ?? c))}</span></li>`).join("");
   $<HTMLElement>("#legendHere").textContent = `Ground ${fmtM(heightMetres(place.north, place.east))}`;
 }
 
