@@ -52,6 +52,8 @@ type Breakdown = {
   contribution: number;
 };
 
+type MapScore = { id: string; label: string; percent: number | null };
+
 type Match = {
   rank: number;
   similarity: number;
@@ -60,6 +62,7 @@ type Match = {
   a: Site;
   b: Site;
   breakdown: Breakdown[];
+  maps?: MapScore[];
 };
 
 type SafetyCell = {
@@ -581,8 +584,8 @@ function showTwin(m: Match | null) {
   $("#twinSub").textContent = `match #${m.rank}`;
   $("#twinSim").textContent = `${m.similarity.toFixed(1)}%`;
   $("#twinDiff").textContent = `height difference ${m.elevation_difference_m >= 0 ? "+" : ""}${fmtM(m.elevation_difference_m)}`;
-  parts.innerHTML = m.breakdown.map((row) =>
-    `<div class="part"><span>${esc(shortFeature(row.label))}</span><b>${featurePercent(row).toFixed(1)}%</b></div>`).join("");
+  parts.innerHTML = (m.maps ?? []).map((row) =>
+    `<div class="part"><span>${esc(row.label)}</span><b>${row.percent == null ? "n/a" : `${row.percent.toFixed(1)}%`}</b></div>`).join("");
   ranks.innerHTML = "";
   for (const match of shownMatches.matches) {
     const button = document.createElement("button");

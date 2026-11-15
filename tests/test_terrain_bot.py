@@ -477,3 +477,13 @@ def test_new_map_replaces_the_bundled_one(tmp_path, monkeypatch):
         assert still["elevation_m"] == pytest.approx(7777)
     finally:
         server.shutdown()
+
+
+def test_compare_maps_scores_every_map():
+    from terrain_bot.layers import compare_maps
+
+    rows = compare_maps("mars", 18.65, -133.8, "earth", 27.99, 86.93, 21229.0, 8849.0)
+    assert [row["id"] for row in rows] == ["elevation", "temperature", "ice-water", "geology", "weather", "light", "radiation"]
+    assert all(row["percent"] is not None and 0 <= row["percent"] <= 100 for row in rows)
+    same = compare_maps("mars", 18.65, -133.8, "mars", 18.65, -133.8, 21229.0, 21229.0)
+    assert all(row["percent"] == 100 for row in same)

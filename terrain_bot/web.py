@@ -21,7 +21,7 @@ from .updates import active_updates, prepare_map
 from .features import compute_features
 from .explain import describe_surface, explain_query, explain_top, feature_label, feature_unit
 from .heightmap import Heightmap, heightmap_from_dem
-from .layers import catalog, layer_png
+from .layers import catalog, compare_maps, layer_png
 from .safety import FACTORS, build_safety, describe_cell, encode_png
 from .matcher import MODES, SURFACES, Match, MatchConfig, SitePoint, TerrainMatcher
 from .places import PlaceFinder, orbital_view
@@ -376,11 +376,11 @@ class TerrainApp:
         m = self.matcher(mode, self._source(source), session_id)
         target = target or m.default_target(body)
         origin, results = m.query(body, lat, lon, k, surface=surface, target=target)
-        return {
+        return self._with_maps({
             "origin": _site(origin),
             "matches": [_match(x) for x in results],
             "steps": explain_query(m, body, origin, results, surface, target),
-        }
+        }, session_id)
 
     def apply_update(self, body: str, kind: str) -> dict:
         """Drop cached maps for one body and load the replacement that was just saved."""
@@ -414,7 +414,23 @@ class TerrainApp:
             m = self.matcher(mode, source, session_id if visit and visit.elevation else "")
             matches = m.top_matches(n, surface=surface, a=a, b=b)
             store[key] = {"matches": [_match(x) for x in matches], "steps": explain_top(m, matches, surface)}
-        return store[key]
+        return self._with_maps(store[key], session_id)
+
+    def _with_maps(self, payload: dict, session_id: str) -> dict:
+        visit = self._visit(session_id)
+        overrides = dict(visit.layers) if visit else {}
+        matches = []
+        for row in payload["matches"]:
+            copied = dict(row)
+            left, right = copied["a"], copied["b"]
+            copied["maps"] = compare_maps(
+                left["body"].lower(), left["lat"], left["lon"],
+                right["body"].lower(), right["lat"], right["lon"],
+                left["features"]["elevation_m"], right["features"]["elevation_m"],
+                overrides,
+            )
+            matches.append(copied)
+        return {**payload, "matches": matches}
 
 
 def make_handler(app: TerrainApp):
