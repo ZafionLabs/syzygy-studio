@@ -242,23 +242,8 @@ function landingSafety(cell: { hazard: number; sun: number; shadow: number; rad:
   return (1 - bad) * 100;
 }
 
-function safetyRgb(safety: number | null): [number, number, number] {
-  if (safety == null) return [40, 48, 58];
-  const bad = 1 - safety / 100;
-  const mix = (a: [number, number, number], b: [number, number, number], t: number): [number, number, number] => [
-    Math.round(a[0] + (b[0] - a[0]) * t),
-    Math.round(a[1] + (b[1] - a[1]) * t),
-    Math.round(a[2] + (b[2] - a[2]) * t),
-  ];
-  const green: [number, number, number] = [32, 160, 90];
-  const yellow: [number, number, number] = [230, 190, 40];
-  const red: [number, number, number] = [210, 48, 48];
-  return bad < 0.5 ? mix(green, yellow, bad / 0.5) : mix(yellow, red, (bad - 0.5) / 0.5);
-}
-
 const safetyGrids = new Map<string, Promise<SafetyGrid>>();
 const safetyReady = new Map<string, SafetyGrid>();
-const safetyColored = new Map<string, { key: string; canvas: HTMLCanvasElement }>();
 
 function loadSafety(body: string) {
   let pending = safetyGrids.get(body);
@@ -307,46 +292,6 @@ function sampleSafety(grid: SafetyGrid, body: string, lat: number, lon: number) 
     shadow: grid.shadow[i] / 255,
     rad: (grid.rad[i] - 1) / 254,
   };
-}
-
-function colorSafety(body: string, grid: SafetyGrid) {
-  const weights = priorities();
-  const key = `${weights.hazard},${weights.sun},${weights.shadow},${weights.rad}`;
-  const cached = safetyColored.get(body);
-  if (cached?.key === key) return cached.canvas;
-  const canvas = document.createElement("canvas");
-  canvas.width = grid.w;
-  canvas.height = grid.h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return canvas;
-  const image = ctx.createImageData(grid.w, grid.h);
-  const px = image.data;
-  for (let i = 0; i < grid.w * grid.h; i++) {
-    const safety = landingSafety({
-      hazard: grid.hazard[i] / 255,
-      sun: grid.sun[i] / 255,
-      shadow: grid.shadow[i] / 255,
-      rad: (grid.rad[i] - 1) / 254,
-    }, weights);
-    const rgb = safetyRgb(safety);
-    const p = i * 4;
-    px[p] = rgb[0];
-    px[p + 1] = rgb[1];
-    px[p + 2] = rgb[2];
-    px[p + 3] = 255;
-  }
-  ctx.putImageData(image, 0, 0);
-  safetyColored.set(body, { key, canvas });
-  return canvas;
-}
-
-function safetyLegend() {
-  const weights = priorities();
-  const sum = weights.hazard + weights.sun + weights.shadow + weights.rad;
-  const note = sum <= 0
-    ? "Move a slider to color safer ground green and less safe ground red."
-    : `Hazards ${weights.hazard}, sunlight ${weights.sun}, shadows ${weights.shadow}, radiation ${weights.rad}.`;
-  return `<div class="legend-row"><span class="name">Landing safety</span><span class="bar" style="background:linear-gradient(90deg,#20a05a,#e6be28,#d23030)"></span><span>safer</span><span>less safe</span></div><div class="note">${esc(note)}</div>`;
 }
 
 function viewOf(slot: string) {
@@ -1160,7 +1105,7 @@ function syncFrames(slot: string, key: string) {
   const ids = usableLayers(key);
   stack.querySelectorAll<HTMLElement>(".mapframe").forEach((frame) => {
     const layer = frame.dataset.layer || "";
-    if (layer !== "safety" && !ids.includes(layer)) frame.remove();
+    if (layer === "safety" || !ids.includes(layer)) frame.remove();
   });
   stack.querySelector(":scope > .note")?.remove();
   if (!ids.length) {
@@ -1183,17 +1128,6 @@ function syncFrames(slot: string, key: string) {
     if (legend) legend.innerHTML = legendOne(key, id);
     stack.appendChild(frame);
   }
-  let safety = stack.querySelector<HTMLElement>(`.mapframe[data-layer="safety"]`);
-  if (!safety) {
-    safety = document.createElement("div");
-    safety.className = "mapframe";
-    safety.dataset.layer = "safety";
-    safety.innerHTML = `<div class="frametitle">Landing safety</div><div class="mapwrap"><div class="mapview"><canvas class="blend"></canvas></div><button type="button" class="mapreset" hidden>Reset view</button></div><div class="legend"></div>`;
-    stack.prepend(safety);
-  }
-  const legend = safety.querySelector(".legend");
-  if (legend) legend.innerHTML = safetyLegend();
-  stack.prepend(safety);
   applyView(slot);
 }
 
@@ -1204,7 +1138,7 @@ function schedulePaint() {
     paintQueued = false;
     for (const [slot, key] of Object.entries(slots())) {
       void paintBlend(slot, key);
-      void paintSafety(slot, key);
+      void loadSafety(key).then(() => refreshRankSafety()).catch(() => undefined);
     }
   });
 }
@@ -1214,7 +1148,6 @@ async function paintBlend(slot: string, key: string) {
   const frames = Array.from(document.querySelectorAll<HTMLElement>(`#map-${slot} .mapframe`));
   await Promise.all(frames.map(async (frame) => {
     const id = frame.dataset.layer || "";
-    if (id === "safety") return;
     const canvas = frame.querySelector("canvas");
     if (!canvas) return;
     const img = await loadMap(mapUrl(key, id)).catch(() => null);
@@ -1226,27 +1159,6 @@ async function paintBlend(slot: string, key: string) {
     canvas.height = height;
     canvas.getContext("2d")?.drawImage(img, 0, 0, width, height);
   }));
-}
-
-async function paintSafety(slot: string, key: string) {
-  const frame = document.querySelector<HTMLElement>(`#map-${slot} .mapframe[data-layer="safety"]`);
-  const canvas = frame?.querySelector("canvas");
-  if (!frame || !canvas) return;
-  const legend = frame.querySelector(".legend");
-  if (legend) legend.innerHTML = safetyLegend();
-  try {
-    const grid = await loadSafety(key);
-    const colored = colorSafety(key, grid);
-    const width = Math.max(480, Math.round((canvas.clientWidth || $(`#map-${slot}`).clientWidth) * Math.min(window.devicePixelRatio || 1, 2)));
-    const height = Math.round(width / 2);
-    canvas.hidden = false;
-    canvas.width = width;
-    canvas.height = height;
-    canvas.getContext("2d")?.drawImage(colored, 0, 0, width, height);
-    refreshRankSafety();
-  } catch {
-    canvas.hidden = true;
-  }
 }
 
 function renderValidation() {
