@@ -97,11 +97,11 @@
   </section>
 
   <section class="panel">
-    <h2>Results <small>similarity = 100 × exp(−distance); click a row to see why it matched</small></h2>
+    <h2>Results <small>the percentage is the average of every map; click a row to see the terrain measurements</small></h2>
     <div class="status" id="status">Loading…</div>
     <div class="tablewrap"><table id="results" hidden>
       <thead><tr>
-        <th>#</th><th>similarity</th>
+        <th>#</th><th>map average</th>
         <th id="hA">from</th><th>elevation</th><th>roughness 75 km</th>
         <th id="hB">match</th><th>elevation</th><th>roughness 75 km</th><th>difference</th>
       </tr></thead>
@@ -116,7 +116,7 @@
       <h2>How this was found <small>step by step, with the real numbers</small></h2>
       <ol class="steps" id="steps"></ol>
       <div id="breakdownWrap" hidden>
-        <h2 style="margin-top:12px">Why match <span id="bdRank"></span> scored <span id="bdSim"></span></h2>
+        <h2 style="margin-top:12px">Terrain measurements for match <span id="bdRank"></span> <span id="bdSim"></span></h2>
         <div class="tablewrap"><table id="breakdown">
           <thead><tr><th>feature</th><th id="bdA">from</th><th id="bdB">match</th><th>difference</th><th>in std-devs</th><th>this measurement</th><th>weight</th><th>adds to distance²</th></tr></thead>
           <tbody></tbody>

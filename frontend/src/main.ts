@@ -582,8 +582,8 @@ function showTwin(m: Match | null) {
   $("#twinRoleA").textContent = `Your point on ${m.a.body}`;
   $("#twinRoleB").textContent = `Match on ${m.b.body}`;
   $("#twinSub").textContent = `match #${m.rank}`;
-  $("#twinSim").textContent = `${m.similarity.toFixed(1)}%`;
-  $("#twinDiff").textContent = `height difference ${m.elevation_difference_m >= 0 ? "+" : ""}${fmtM(m.elevation_difference_m)}`;
+  $("#twinSim").textContent = `${mapAverage(m).toFixed(1)}%`;
+  $("#twinDiff").innerHTML = `average of the maps<br>height difference ${m.elevation_difference_m >= 0 ? "+" : ""}${fmtM(m.elevation_difference_m)}`;
   parts.innerHTML = (m.maps ?? []).map((row) =>
     `<div class="part"><span>${esc(row.label)}</span><b>${row.percent == null ? "n/a" : `${row.percent.toFixed(1)}%`}</b></div>`).join("");
   ranks.innerHTML = "";
@@ -625,8 +625,14 @@ function rankSafetySuffix(match: Match) {
   return score == null ? "" : ` · ${score.toFixed(0)}% safe`;
 }
 
+function mapAverage(match: Match) {
+  const values = (match.maps ?? []).map((row) => row.percent).filter((value): value is number => value != null);
+  if (!values.length) return match.similarity;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
 function rankSafetyText(match: Match) {
-  return `#${match.rank} ${match.similarity.toFixed(1)}%${rankSafetySuffix(match)}`;
+  return `#${match.rank} ${mapAverage(match).toFixed(1)}%${rankSafetySuffix(match)}`;
 }
 
 function refreshRankSafety() {
@@ -817,7 +823,7 @@ function showResults(matches: Match[], origin: Site | null) {
     groups.push(place(bodyKey(m.b.body), m.b.lat, m.b.lon, "", String(m.rank), placeName(m.b)));
     const live = groups.flat();
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${m.rank}</td><td><span class="sim">${m.similarity.toFixed(1)}%</span></td>
+    tr.innerHTML = `<td>${m.rank}</td><td><span class="sim">${mapAverage(m).toFixed(1)}%</span></td>
       <td>${fmtLL(m.a.lat, m.a.lon)}</td><td>${elevCell(m.a)}</td><td>${fmtM(relief(m.a))}</td>
       <td>${fmtLL(m.b.lat, m.b.lon)}</td><td>${elevCell(m.b)}</td><td>${fmtM(relief(m.b))}</td>
       <td>${m.elevation_difference_m >= 0 ? "+" : ""}${fmtM(m.elevation_difference_m)}</td>`;
