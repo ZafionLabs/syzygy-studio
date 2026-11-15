@@ -92,12 +92,6 @@
     <select id="earthFrom"></select>
   </label>
   <label>Data <select id="source"></select></label>
-  <label>Compare by
-    <select id="mode">
-      <option value="terrain">terrain (height, roughness, slope)</option>
-      <option value="elevation">elevation only</option>
-    </select>
-  </label>
   <label>Earth points
     <select id="surface">
       <option value="any">land or underwater</option>
@@ -201,7 +195,7 @@ const slots = () => {
 };
 const slotOf = (body) => Object.entries(slots()).find(([, b]) => b === body)?.[0];
 const otherOf = (body) => (slots().A === body ? slots().B : slots().A);
-const params = () => `mode=${$("#mode").value}&source=${source()}&surface=${$("#surface").value}`;
+const params = () => `mode=terrain&source=${source()}&surface=${$("#surface").value}`;
 
 async function api(path) {
   const r = await fetch(path);
@@ -330,8 +324,8 @@ async function runTop() {
   try {
     const res = await api(`/api/top?n=${k}&a=${A}&b=${B}&${params()}`);
     $("#status").textContent = earthMode()
-      ? `Top ${res.matches.length} closest ${bodies()[A].name} places on Earth (${$("#mode").value} mode, ${INFO.sources[source()].label}). Click a row to see why.`
-      : `Top ${res.matches.length} most similar ${bodies()[A].name}/${bodies()[B].name} locations (${$("#mode").value} mode, ${INFO.sources[source()].label}). Click a row to see why.`;
+      ? `Top ${res.matches.length} closest ${bodies()[A].name} places on Earth (${INFO.sources[source()].label}). Click a row to see why.`
+      : `Top ${res.matches.length} most similar ${bodies()[A].name}/${bodies()[B].name} locations (${INFO.sources[source()].label}). Click a row to see why.`;
     showResults(res.matches, null);
     showSteps(res.steps);
   } catch (e) { $("#status").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
@@ -449,7 +443,6 @@ async function init() {
   const sel = $("#source");
   for (const [key, s] of Object.entries(INFO.sources)) sel.add(new Option(s.label, key));
   sel.value = INFO.default_source;
-  $("#mode").value = INFO.default_mode;
   fillBodySelects();
   $("#bodyA").value = "earth"; $("#bodyB").value = "moon";
   wireMap("A"); wireMap("B"); wireMap("C");
@@ -485,7 +478,6 @@ async function init() {
       rerun();
     });
   }
-  $("#mode").addEventListener("change", rerun);
   $("#surface").addEventListener("change", rerun);
   if (earthMode()) $("#status").textContent = "Click a spot on the Moon or Mars to find the closest matches on Earth.";
   else runTop();
