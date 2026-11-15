@@ -13,7 +13,7 @@
      By default it uses real measured elevations: NOAA ETOPO1 for Earth (including the ocean floor), NASA LRO LOLA for the Moon, and NASA MGS MOLA for Mars.
      You can switch to your images, scaled from each body's real lowest point to its highest: Challenger Deep (−10,935 m) to Everest (+8,849 m) on Earth, Point Trieste (−9,129 m) to the Selenean summit (+10,786 m) on the Moon, and Badwater crater in Hellas (−8,201 m) to Olympus Mons (+21,229 m) on Mars.
      Or use the images with a brightness curve fitted to the real data.
-     The map buttons add temperature, ice and water, geology, weather, light, and radiation. Turn on more than one at a time. Each selected map is drawn on its own, one under the other. Hover a selected point or a found match to see its name, its coordinates, a picture of the spot, the nearest landmark and how far away it is, and how far the point is from the center of the nearest crater. You can type coordinates instead of clicking a map. The match is shown under the maps, with the old place cards: the name, the description, and pictures of both places, plus the match percentage. High risk shows on Hazards, Sunlight, Shadows, or Radiation when that spot is dangerous for it. The sliders decide how much each one counts. A click still searches by elevation.</p>
+     The map buttons add temperature, ice and water, geology, weather, light, and radiation. Turn on more than one at a time. Each selected map is drawn on its own, one under the other. A new elevation or science map replaces the bundled one: place the file in data/updates, or choose it under New map, and the bot uses that file instead. Hover a selected point or a found match to see its name, its coordinates, a picture of the spot, the nearest landmark and how far away it is, and how far the point is from the center of the nearest crater. You can type coordinates instead of clicking a map. The match is shown under the maps, with the old place cards: the name, the description, and pictures of both places, plus the match percentage. High risk shows on Hazards, Sunlight, Shadows, or Radiation when that spot is dangerous for it. The sliders decide how much each one counts. A click still searches by elevation.</p>
 </header>
 
 <div class="toolbar">
@@ -69,6 +69,24 @@
   <button type="button" data-preset="shadow">Avoid shadows</button>
   <button type="button" data-preset="radiation">Lowest radiation</button>
   <span id="safetyHint" class="note">High risk appears on a factor when the spot you are on is dangerous for it.</span>
+</div>
+<div class="toolbar" id="updateBar">
+  <span>New map</span>
+  <label>Body <select id="updateBody" aria-label="Body for the new map"></select></label>
+  <label>Kind
+    <select id="updateKind" aria-label="Kind of map">
+      <option value="elevation">Elevation</option>
+      <option value="temperature">Temperature</option>
+      <option value="ice-water">Ice and water</option>
+      <option value="geology">Geology</option>
+      <option value="weather">Weather</option>
+      <option value="light">Light</option>
+      <option value="radiation">Radiation</option>
+    </select>
+  </label>
+  <input id="updateFile" type="file" accept=".npz,.npy,.png,image/png" aria-label="New map file">
+  <button type="button" id="updateGo">Use this map</button>
+  <span id="updateNote" class="note">An elevation file is a .npz (or .npy) grid in metres. Any other map is a PNG, north at the top and 180° west at the left. The bot uses that file instead of the bundled map.</span>
 </div>
 
 <main>

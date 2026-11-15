@@ -64,9 +64,12 @@ async function record(url: URL, payload: { origin?: { body?: string; lat?: numbe
   );
 }
 
-function proxy(reqUrl: URL, res: import("node:http").ServerResponse) {
+function proxy(req: import("node:http").IncomingMessage, reqUrl: URL, res: import("node:http").ServerResponse) {
   const dest = new URL(reqUrl.pathname + reqUrl.search, pythonUrl);
-  const preq = httpRequest(dest, { method: "GET" }, (pres) => {
+  const headers: Record<string, string> = {};
+  if (req.headers["content-type"]) headers["content-type"] = String(req.headers["content-type"]);
+  if (req.headers["content-length"]) headers["content-length"] = String(req.headers["content-length"]);
+  const preq = httpRequest(dest, { method: req.method || "GET", headers }, (pres) => {
     const chunks: Buffer[] = [];
     pres.on("data", (chunk: Buffer) => chunks.push(chunk));
     pres.on("end", () => {
@@ -92,7 +95,7 @@ function proxy(reqUrl: URL, res: import("node:http").ServerResponse) {
     });
   });
   preq.on("error", () => sendJson(res, 502, { error: "terrain service unavailable" }));
-  preq.end();
+  req.pipe(preq);
 }
 
 async function serveStatic(pathname: string, res: import("node:http").ServerResponse) {
@@ -128,7 +131,7 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/map/")) {
-      proxy(url, res);
+      proxy(req, url, res);
       return;
     }
     await serveStatic(url.pathname, res);

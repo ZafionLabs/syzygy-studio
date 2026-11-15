@@ -12,10 +12,13 @@ type BodyInfo = {
   calibration: Record<string, { landmark: string; real_elevation_m: number; map_elevation_at_real_location_m: number; map_pixel_offset_km: number }>;
 };
 
+type MapUpdate = { body: string; kind: string; file: string };
+
 type Info = {
   default_mode: string;
   default_source: string;
   sources: Record<string, { label: string; bodies: Record<string, BodyInfo> }>;
+  updates?: MapUpdate[];
   validation?: {
     body: string;
     source: string;
@@ -185,8 +188,9 @@ function usableLayers(key: string) {
   return activeIds().filter((id) => id === "elevation" || LAYERS?.bodies[key]?.[id]?.available !== false);
 }
 
+let mapStamp = 4;
 function mapUrl(key: string, id: string) {
-  return id === "elevation" ? `/map/${source()}/${key}.png?v=4` : `/map/layer/${key}/${id}.png?v=4`;
+  return id === "elevation" ? `/map/${source()}/${key}.png?v=${mapStamp}` : `/map/layer/${key}/${id}.png?v=${mapStamp}`;
 }
 
 const PRESETS: Record<string, Priorities> = {
@@ -249,7 +253,7 @@ function loadSafety(body: string) {
   let pending = safetyGrids.get(body);
   if (!pending) {
     pending = (async () => {
-      const img = await loadMap(`/api/safety/${body}.png?v=2`);
+      const img = await loadMap(`/api/safety/${body}.png?v=${mapStamp}`);
       const canvas = document.createElement("canvas");
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
@@ -1280,6 +1284,44 @@ async function init() {
   sel.value = INFO.default_source;
   $<HTMLSelectElement>("#mode").value = INFO.default_mode;
   fillBodySelects();
+  const updateBody = $<HTMLSelectElement>("#updateBody");
+  Object.entries(bodies()).forEach(([key, body]) => updateBody.add(new Option(body.name, key)));
+  const writeUpdates = () => {
+    const rows = INFO?.updates ?? [];
+    $("#updateNote").textContent = rows.length
+      ? `In use now: ${rows.map((row) => `${bodies()[row.body]?.name ?? row.body} ${row.kind} (${row.file})`).join("; ")}.`
+      : "An elevation file is a .npz (or .npy) grid in metres. Any other map is a PNG, north at the top and 180° west at the left. The bot uses that file instead of the bundled map.";
+  };
+  writeUpdates();
+  $("#updateGo").addEventListener("click", () => void (async () => {
+    const input = $<HTMLInputElement>("#updateFile");
+    const file = input.files?.[0];
+    const note = $("#updateNote");
+    if (!file) {
+      note.textContent = "Choose the new map file first.";
+      return;
+    }
+    const body = val("#updateBody");
+    const kind = val("#updateKind");
+    note.textContent = `Reading ${file.name}…`;
+    const response = await fetch(`/api/maps?body=${encodeURIComponent(body)}&kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: file,
+    });
+    const payload = await response.json() as { error?: string; file?: string };
+    if (!response.ok) {
+      note.textContent = payload.error || "That map could not be used.";
+      return;
+    }
+    INFO = await api<Info>("/api/info");
+    mapStamp += 1;
+    mapImages.clear();
+    safetyGrids.clear();
+    safetyReady.clear();
+    renderPair();
+    note.textContent = `${bodies()[body]?.name ?? body} ${kind} now uses ${payload.file}.`;
+  })());
   $<HTMLSelectElement>("#bodyA").value = "earth";
   $<HTMLSelectElement>("#bodyB").value = "moon";
   wireMap("A"); wireMap("B"); wireMap("C");

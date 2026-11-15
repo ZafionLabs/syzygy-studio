@@ -24,7 +24,6 @@ from PIL import Image
 from scipy.ndimage import uniform_filter
 
 from .heightmap import Heightmap
-from .layers import LAYER_DIR
 
 FACTORS = ("hazard", "sunlight", "shadow", "radiation")
 
@@ -46,8 +45,11 @@ def _wrap_mean(values: np.ndarray, size: int) -> np.ndarray:
 
 
 def _layer_index(body: str, layer: str, shape: tuple[int, int]) -> np.ndarray | None:
-    path = LAYER_DIR / f"{body}_{layer}.png"
-    if not path.is_file():
+    from .layers import layer_path
+
+    try:
+        path = layer_path(body, layer)
+    except ValueError:
         return None
     image = Image.open(path).convert("RGB").resize((shape[1], shape[0]), Image.Resampling.BILINEAR)
     rgb = np.asarray(image, dtype=np.float32)

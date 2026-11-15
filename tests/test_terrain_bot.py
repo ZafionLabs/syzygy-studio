@@ -353,3 +353,53 @@ def test_landing_safety_marks_cliffs_water_and_priorities():
     assert landing_safety({"hazard": 0.1, "sunlight": 0, "shadow": 0, "radiation": 0}, {"hazard": 0, "sunlight": 0, "shadow": 0, "radiation": 0}) is None
     image = Image.open(io.BytesIO(encode_png(grid)))
     assert image.mode == "RGBA" and image.size == (20, 20)
+
+
+def test_new_map_replaces_the_bundled_one(tmp_path, monkeypatch):
+    import json
+    import threading
+    from http.server import ThreadingHTTPServer
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    from terrain_bot.web import TerrainApp, make_handler
+
+    monkeypatch.setattr("terrain_bot.updates.UPDATE_DIR", tmp_path)
+    elev = np.full((8, 16), 7777.0)
+    packed = io.BytesIO()
+    np.savez_compressed(packed, elevation=elev, lat_range=np.array([-90.0, 90.0]), lon_range=np.array([-180.0, 180.0]))
+    hm_a = heightmap_from_array(_synthetic_terrain(seed=5), EARTH)
+    hm_b = heightmap_from_array(_synthetic_terrain(seed=6), MOON)
+    app = TerrainApp({"images": {"earth": hm_a, "moon": hm_b}}, MatchConfig(), default_source="images", online=False)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(app))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        saved = json.load(urlopen(Request(
+            base + "/api/maps?body=moon&kind=elevation&name=lola_new.npz",
+            data=packed.getvalue(),
+            method="POST",
+        )))
+        assert saved["file"] == "moon_elevation.npz"
+        assert (tmp_path / "moon_elevation.npz").is_file()
+        height = json.load(urlopen(base + "/api/height?body=moon&lat=10&lon=20"))
+        assert height["elevation_m"] == pytest.approx(7777)
+        assert urlopen(base + "/map/images/moon.png").read().startswith(b"\x89PNG")
+        picture = io.BytesIO()
+        Image.new("RGB", (4, 4), (12, 34, 56)).save(picture, format="PNG")
+        layer = json.load(urlopen(Request(
+            base + "/api/maps?body=moon&kind=radiation&name=heat.png",
+            data=picture.getvalue(),
+            method="POST",
+        )))
+        assert layer["file"] == "moon_radiation.png"
+        assert urlopen(base + "/map/layer/moon/radiation.png").read().startswith(b"\x89PNG")
+        listed = json.load(urlopen(base + "/api/maps"))
+        assert {row["kind"] for row in listed["updates"]} == {"elevation", "radiation"}
+        with pytest.raises(HTTPError) as err:
+            urlopen(Request(base + "/api/maps?body=moon&kind=elevation&name=notes.txt", data=b"not a map", method="POST"))
+        assert err.value.code == 400
+        still = json.load(urlopen(base + "/api/height?body=moon&lat=0&lon=0"))
+        assert still["elevation_m"] == pytest.approx(7777)
+    finally:
+        server.shutdown()

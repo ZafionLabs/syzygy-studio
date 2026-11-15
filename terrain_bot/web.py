@@ -13,7 +13,8 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 from PIL import Image
 
-from .dem import compare_to_dem
+from .dem import compare_to_dem, load_dem
+from .updates import active_updates, install_map
 from .features import compute_features
 from .explain import describe_surface, explain_query, explain_top, feature_label, feature_unit
 from .heightmap import Heightmap
@@ -164,6 +165,7 @@ class TerrainApp:
                 for src in ("images", "images-fit")
                 if b in self.datasets.get(src, {})
             ]
+        out["updates"] = active_updates()
         return out
 
     def info(self) -> dict:
@@ -254,6 +256,29 @@ class TerrainApp:
             "steps": explain_query(m, body, origin, results, surface, target),
         }
 
+    def apply_update(self, body: str, kind: str) -> dict:
+        """Drop cached maps for one body and load the replacement that was just saved."""
+        body = body.lower()
+        with self._lock:
+            replaced = [src for src, maps in self.datasets.items() if body in maps]
+            if not replaced:
+                raise ValueError(f"unknown body {body!r}")
+            if kind == "elevation":
+                hm = load_dem(body)
+                for src in replaced:
+                    self.datasets[src][body] = hm
+                    self._pngs[(src, body)] = render_map_png(hm, CMAPS.get(body, "viridis"))
+                self._features = {key: value for key, value in self._features.items() if key[1] != body}
+                self._matchers.clear()
+                self._top.clear()
+            else:
+                from .layers import layer_path
+
+                layer_path(body, kind)
+            self._safety.pop(body, None)
+            self._info = self._build_info()
+        return {"replaced": True, "body": body, "kind": kind, "sources": replaced, "updates": active_updates()}
+
     def top(self, n: int, mode: str, source: str | None, surface: str, a: str, b: str) -> dict:
         source = self._source(source)
         key = (source, mode, surface, n, a, b)
@@ -294,6 +319,8 @@ def make_handler(app: TerrainApp):
                     self._send(204, b"", "image/x-icon", cache=True)
                 elif path == "/api/layers":
                     self._json(200, catalog())
+                elif path == "/api/maps":
+                    self._json(200, {"updates": active_updates()})
                 elif path.startswith("/map/layer/") and path.endswith(".png"):
                     body, layer = path[len("/map/layer/"):-4].split("/")
                     self._send(200, layer_png(body, layer), "image/png")
@@ -324,6 +351,26 @@ def make_handler(app: TerrainApp):
                                             q.get("a", "earth"), q.get("b", "moon")))
                 else:
                     self._json(404, {"error": "not found"})
+            except (ValueError, KeyError) as exc:
+                self._json(400, {"error": str(exc) if not isinstance(exc, KeyError) else f"missing {exc}"})
+
+        def do_POST(self):
+            url = urlparse(self.path)
+            q = {k: v[-1] for k, v in parse_qs(url.query).items()}
+            if url.path != "/api/maps":
+                self._json(404, {"error": "not found"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                length = 0
+            if length <= 0 or length > 80_000_000:
+                self._json(400, {"error": "send the map file in the request body, up to 80 MB"})
+                return
+            raw = self.rfile.read(length)
+            try:
+                saved = install_map(q["body"], q["kind"], raw, q.get("name", ""))
+                self._json(200, {**saved, **app.apply_update(saved["body"], saved["kind"])})
             except (ValueError, KeyError) as exc:
                 self._json(400, {"error": str(exc) if not isinstance(exc, KeyError) else f"missing {exc}"})
 

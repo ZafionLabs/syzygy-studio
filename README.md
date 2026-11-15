@@ -16,6 +16,14 @@ step-by-step working.
 that brightness, then forces the curve to rise with brightness. Run
 `python -m terrain_bot download-dem` to refetch the DEMs (about 5 MB total).
 
+A newer NASA file replaces the bundled map for that body. Drop it in `data/updates`, or choose
+it under **New map** in the app. Elevation is `{body}_elevation.npz` (array `elevation` in metres,
+optional `lat_range` and `lon_range`) or a full-globe `{body}_elevation.npy`. Temperature, ice and
+water, geology, weather, light, and radiation are `{body}_{kind}.png` in the same simple-cylindrical
+frame as the built-in maps, north at the top and 180° west at the left. The running bot uses that
+file instead of the copy in `data/dem` or `data/layers`. Uploaded files stay on the machine that
+is serving the app.
+
 ### How accurate are the images? (`python -m terrain_bot validate`)
 
 Each calibrated image is compared pixel by pixel with the real data at the same coordinates:

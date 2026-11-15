@@ -12,8 +12,15 @@ def catalog() -> dict:
     return json.loads((LAYER_DIR / "catalog.json").read_text())
 
 
-def layer_png(body: str, layer: str) -> bytes:
-    path = LAYER_DIR / f"{body}_{layer}.png"
+def layer_path(body: str, layer: str) -> Path:
+    from .updates import layer_file
+
+    custom = layer_file(body, layer)
+    path = custom or (LAYER_DIR / f"{body}_{layer}.png")
     if not path.is_file():
         raise ValueError(f"no {layer} map for {body}")
-    return path.read_bytes()
+    return path
+
+
+def layer_png(body: str, layer: str) -> bytes:
+    return layer_path(body, layer).read_bytes()

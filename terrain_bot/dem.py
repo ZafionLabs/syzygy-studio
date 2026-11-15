@@ -123,15 +123,19 @@ def dem_available(body: str, dem_dir: Path = DEM_DIR) -> bool:
 
 
 def load_dem(body: str, dem_dir: Path = DEM_DIR) -> Heightmap:
+    from .updates import elevation_file
+
     src = DEM_SOURCES[body]
-    path = dem_dir / src.filename
+    custom = elevation_file(body)
+    path = custom or (dem_dir / src.filename)
     if not path.exists():
         raise FileNotFoundError(f"{path} not found; run `python -m terrain_bot download-dem`")
     with np.load(path) as f:
         elev = f["elevation"]
         lat_range = tuple(float(x) for x in f["lat_range"])
         lon_range = tuple(float(x) for x in f["lon_range"])
-    return heightmap_from_dem(elev, BODIES[body], lat_range, lon_range, src.name)
+    name = f"Updated elevation ({path.name})" if custom else src.name
+    return heightmap_from_dem(elev, BODIES[body], lat_range, lon_range, name)
 
 
 def _isotonic(y: np.ndarray, w: np.ndarray) -> np.ndarray:
