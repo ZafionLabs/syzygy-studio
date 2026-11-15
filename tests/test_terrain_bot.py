@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import io
+
 import numpy as np
 import pytest
 from PIL import Image
@@ -265,6 +267,9 @@ def test_web_api_round_trip():
         assert layers["bodies"]["mars"]["radiation"]["available"] is True
         assert urlopen(base + "/map/layer/earth/temperature.png").read().startswith(b"\x89PNG")
         assert urlopen(base + "/map/layer/mars/weather.png").read().startswith(b"\x89PNG")
+        assert urlopen(base + "/api/safety/moon.png").read().startswith(b"\x89PNG")
+        spot = json.load(urlopen(base + "/api/safety?body=moon&lat=10&lon=20"))
+        assert 0 <= spot["sunlight"] <= 1 and spot["dangers"] and "slope" in spot["dangers"][0].lower()
         info = json.load(urlopen(base + "/api/info"))
         assert info["sources"]["images"]["bodies"]["earth"]["color_max_m"] == pytest.approx(8848.86)
         res = json.load(urlopen(base + "/api/query?body=moon&lat=10&lon=20&k=3&mode=elevation&surface=underwater"))
@@ -317,3 +322,29 @@ def test_old_place_cards_name_known_spots_offline():
     assert named["body"] == "Moon" and named["name"]
     with pytest.raises(ValueError):
         app.place("pluto", 0, 0)
+
+
+def test_landing_safety_marks_cliffs_water_and_priorities():
+    from terrain_bot.heightmap import heightmap_from_dem
+    from terrain_bot.safety import build_safety, encode_png, landing_safety
+
+    cliff = np.zeros((20, 20))
+    cliff[:, 10:] = 3000
+    moon = heightmap_from_dem(cliff, MOON, (0.0, 1.0), (0.0, 1.0), "test")
+    grid = build_safety(moon)
+    assert grid.hazard[:, 2].mean() < 0.2
+    assert grid.hazard[:, 9].mean() > 0.6
+    flat_score = landing_safety(grid, {"hazard": 100, "sunlight": 0, "shadow": 0, "radiation": 0}, 2, 2)
+    steep_score = landing_safety(grid, {"hazard": 100, "sunlight": 0, "shadow": 0, "radiation": 0}, 2, 9)
+    assert flat_score > 80 and steep_score < 40
+
+    sea = np.full((12, 16), 100.0)
+    sea[:, :8] = -2000
+    earth = heightmap_from_dem(sea, EARTH, (0.0, 1.0), (0.0, 1.0), "test")
+    wet = build_safety(earth)
+    assert wet.water[:, 2].all() and not wet.water[:, 12].any()
+    assert wet.hazard[:, 2].mean() > 0.9
+    assert landing_safety({"hazard": 0.1, "sunlight": 1, "shadow": 0, "radiation": 0}, {"hazard": 0, "sunlight": 100, "shadow": 0, "radiation": 0}) == pytest.approx(100)
+    assert landing_safety({"hazard": 0.1, "sunlight": 0, "shadow": 0, "radiation": 0}, {"hazard": 0, "sunlight": 0, "shadow": 0, "radiation": 0}) is None
+    image = Image.open(io.BytesIO(encode_png(grid)))
+    assert image.mode == "RGBA" and image.size == (20, 20)

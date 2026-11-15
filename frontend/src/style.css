@@ -56,8 +56,13 @@
   .twin-parts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 10px; }
   .twin-parts .part { display: flex; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
   .twin-parts .part b { color: var(--ok); font-variant-numeric: tabular-nums; }
+  .twin-safety { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  .twin-safety h3 { margin: 0 0 4px; font-size: 14px; }
+  .twin-safety li { margin: 0 0 4px; }
+  #safetyBar input[type="range"] { width: 88px; padding: 0; accent-color: var(--ok); }
+  #safetyBar output { min-width: 1.6em; color: var(--text); }
   .twin .role { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
-  @media (max-width: 800px) { .twin { grid-template-columns: 1fr; } }
+  @media (max-width: 800px) { .twin, .twin-safety { grid-template-columns: 1fr; } }
   .mix { display: flex; flex-wrap: wrap; gap: 8px; }
   .mix-item { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; }
   .mix-item button { border: none; background: transparent; color: var(--muted); }

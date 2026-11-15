@@ -18,6 +18,7 @@ from .features import compute_features
 from .explain import describe_surface, explain_query, explain_top, feature_label, feature_unit
 from .heightmap import Heightmap
 from .layers import catalog, layer_png
+from .safety import FACTORS, build_safety, describe_cell, encode_png
 from .matcher import MODES, SURFACES, Match, MatchConfig, SitePoint, TerrainMatcher
 from .places import PlaceFinder, orbital_view
 from .report import calibration_check
@@ -96,6 +97,7 @@ class TerrainApp:
         self._matchers: dict[tuple[str, str], TerrainMatcher] = {}
         self._top: dict[tuple, dict] = {}
         self._lock = threading.Lock()
+        self._safety: dict[str, tuple[object, bytes]] = {}
         self._pngs = {
             (src, body): render_map_png(hm, CMAPS.get(body, "viridis"))
             for src, maps in self.datasets.items()
@@ -188,13 +190,45 @@ class TerrainApp:
             raise ValueError(f"unknown body {body!r}")
         return orbital_view(body, round(lat, 3), round(lon, 3), float(np.clip(half_km, 20, 1500)))
 
+    def _safety_hm(self, body: str) -> Heightmap:
+        body = body.lower()
+        if body in self.datasets.get("dem", {}):
+            return self.datasets["dem"][body]
+        for maps in self.datasets.values():
+            if body in maps:
+                return maps[body]
+        raise ValueError(f"unknown body {body!r}")
+
+    def safety_grid(self, body: str):
+        body = body.lower()
+        with self._lock:
+            cached = self._safety.get(body)
+            if cached is None:
+                hm = self._safety_hm(body)
+                grid = build_safety(hm)
+                cached = (grid, encode_png(grid))
+                self._safety[body] = cached
+            return cached
+
+    def safety_png(self, body: str) -> bytes:
+        return self.safety_grid(body)[1]
+
+    def safety_at(self, body: str, lat: float, lon: float, weights: dict[str, float] | None = None) -> dict:
+        hm = self._safety_hm(body)
+        grid, _png = self.safety_grid(body)
+        cell = describe_cell(hm, grid, lat, lon, weights)
+        cell["body"] = hm.body.name
+        cell["lat"] = lat
+        cell["lon"] = lon
+        return cell
+
     def height(self, body: str, lat: float, lon: float, source: str | None = None) -> dict:
         hm = self.datasets[self._source(source)].get(body)
         if hm is None:
             raise ValueError(f"unknown body {body!r}")
         r, c = hm.pixel_of(lat, lon)
         elev = float(hm.elevation[r, c])
-        return {
+        payload = {
             "body": hm.body.name,
             "lat": lat,
             "lon": lon,
@@ -202,6 +236,12 @@ class TerrainApp:
             "gray": float(hm.gray[r, c]),
             "surface": describe_surface(hm.body.name, elev) if math.isfinite(elev) else "no data",
         }
+        try:
+            weights = {name: float(25) for name in FACTORS}
+            payload["safety"] = self.safety_at(body, lat, lon, weights)
+        except ValueError:
+            pass
+        return payload
 
     def query(self, body: str, lat: float, lon: float, k: int, mode: str, source: str | None, surface: str,
               target: str | None = None) -> dict:
@@ -265,6 +305,11 @@ def make_handler(app: TerrainApp):
                     self._json(200, app.info())
                 elif path == "/api/height":
                     self._json(200, app.height(q["body"], float(q["lat"]), float(q["lon"]), source))
+                elif path == "/api/safety":
+                    weights = {name: float(q[name]) for name in FACTORS if name in q}
+                    self._json(200, app.safety_at(q["body"], float(q["lat"]), float(q["lon"]), weights or None))
+                elif path.startswith("/api/safety/") and path.endswith(".png"):
+                    self._send(200, app.safety_png(path[len("/api/safety/"):-4]), "image/png", cache=True)
                 elif path == "/api/place":
                     self._json(200, app.place(q["body"], float(q["lat"]), float(q["lon"]), source))
                 elif path == "/api/place-image":

@@ -59,6 +59,29 @@ type Match = {
   breakdown: Breakdown[];
 };
 
+type SafetyCell = {
+  hazard: number;
+  sunlight: number;
+  shadow: number;
+  radiation: number;
+  slope_deg: number;
+  roughness_m: number;
+  water: boolean;
+  dangers: string[];
+  radiation_note: string;
+};
+
+type SafetyGrid = {
+  w: number;
+  h: number;
+  hazard: Uint8Array;
+  sun: Uint8Array;
+  shadow: Uint8Array;
+  rad: Uint8Array;
+};
+
+type Priorities = { hazard: number; sun: number; shadow: number; rad: number };
+
 type Step = { title: string; lines: string[] };
 
 type QueryResult = { origin: Site; matches: Match[]; steps: Step[] };
@@ -163,6 +186,133 @@ function usableLayers(key: string) {
 
 function mapUrl(key: string, id: string) {
   return id === "elevation" ? `/map/${source()}/${key}.png?v=4` : `/map/layer/${key}/${id}.png?v=4`;
+}
+
+const PRESETS: Record<string, Priorities> = {
+  balanced: { hazard: 25, sun: 25, shadow: 25, rad: 25 },
+  flat: { hazard: 100, sun: 0, shadow: 0, rad: 0 },
+  sun: { hazard: 0, sun: 100, shadow: 0, rad: 0 },
+  shadow: { hazard: 0, sun: 0, shadow: 100, rad: 0 },
+  radiation: { hazard: 0, sun: 0, shadow: 0, rad: 100 },
+};
+
+function priorities(): Priorities {
+  const num = (id: string) => Number((document.querySelector(id) as HTMLInputElement).value) || 0;
+  return { hazard: num("#priHazard"), sun: num("#priSun"), shadow: num("#priShadow"), rad: num("#priRad") };
+}
+
+function landingSafety(cell: { hazard: number; sun: number; shadow: number; rad: number }, weights = priorities()) {
+  const sum = weights.hazard + weights.sun + weights.shadow + weights.rad;
+  if (sum <= 0) return null;
+  const bad = (weights.hazard * cell.hazard + weights.sun * (1 - cell.sun) + weights.shadow * cell.shadow + weights.rad * cell.rad) / sum;
+  return (1 - bad) * 100;
+}
+
+function safetyRgb(safety: number | null): [number, number, number] {
+  if (safety == null) return [40, 48, 58];
+  const bad = 1 - safety / 100;
+  const mix = (a: [number, number, number], b: [number, number, number], t: number): [number, number, number] => [
+    Math.round(a[0] + (b[0] - a[0]) * t),
+    Math.round(a[1] + (b[1] - a[1]) * t),
+    Math.round(a[2] + (b[2] - a[2]) * t),
+  ];
+  const green: [number, number, number] = [32, 160, 90];
+  const yellow: [number, number, number] = [230, 190, 40];
+  const red: [number, number, number] = [210, 48, 48];
+  return bad < 0.5 ? mix(green, yellow, bad / 0.5) : mix(yellow, red, (bad - 0.5) / 0.5);
+}
+
+const safetyGrids = new Map<string, Promise<SafetyGrid>>();
+const safetyReady = new Map<string, SafetyGrid>();
+const safetyColored = new Map<string, { key: string; canvas: HTMLCanvasElement }>();
+
+function loadSafety(body: string) {
+  let pending = safetyGrids.get(body);
+  if (!pending) {
+    pending = (async () => {
+      const img = await loadMap(`/api/safety/${body}.png?v=1`);
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) throw new Error("canvas");
+      ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      const n = canvas.width * canvas.height;
+      const hazard = new Uint8Array(n);
+      const sun = new Uint8Array(n);
+      const shadow = new Uint8Array(n);
+      const rad = new Uint8Array(n);
+      for (let i = 0; i < n; i++) {
+        const p = i * 4;
+        hazard[i] = data[p];
+        sun[i] = data[p + 1];
+        shadow[i] = data[p + 2];
+        rad[i] = data[p + 3];
+      }
+      const grid = { w: canvas.width, h: canvas.height, hazard, sun, shadow, rad };
+      safetyReady.set(body, grid);
+      return grid;
+    })();
+    safetyGrids.set(body, pending);
+  }
+  return pending;
+}
+
+function sampleSafety(grid: SafetyGrid, body: string, lat: number, lon: number) {
+  const info = bodies()[body];
+  const fy = (info.lat_range[1] - lat) / (info.lat_range[1] - info.lat_range[0]);
+  let fx = (lon - info.lon_range[0]) / (info.lon_range[1] - info.lon_range[0]);
+  fx = ((fx % 1) + 1) % 1;
+  const row = Math.min(grid.h - 1, Math.max(0, Math.floor(fy * grid.h)));
+  const col = Math.min(grid.w - 1, Math.max(0, Math.floor(fx * grid.w)));
+  const i = row * grid.w + col;
+  return {
+    hazard: grid.hazard[i] / 255,
+    sun: grid.sun[i] / 255,
+    shadow: grid.shadow[i] / 255,
+    rad: (grid.rad[i] - 1) / 254,
+  };
+}
+
+function colorSafety(body: string, grid: SafetyGrid) {
+  const weights = priorities();
+  const key = `${weights.hazard},${weights.sun},${weights.shadow},${weights.rad}`;
+  const cached = safetyColored.get(body);
+  if (cached?.key === key) return cached.canvas;
+  const canvas = document.createElement("canvas");
+  canvas.width = grid.w;
+  canvas.height = grid.h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
+  const image = ctx.createImageData(grid.w, grid.h);
+  const px = image.data;
+  for (let i = 0; i < grid.w * grid.h; i++) {
+    const safety = landingSafety({
+      hazard: grid.hazard[i] / 255,
+      sun: grid.sun[i] / 255,
+      shadow: grid.shadow[i] / 255,
+      rad: (grid.rad[i] - 1) / 254,
+    }, weights);
+    const rgb = safetyRgb(safety);
+    const p = i * 4;
+    px[p] = rgb[0];
+    px[p + 1] = rgb[1];
+    px[p + 2] = rgb[2];
+    px[p + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  safetyColored.set(body, { key, canvas });
+  return canvas;
+}
+
+function safetyLegend() {
+  const weights = priorities();
+  const sum = weights.hazard + weights.sun + weights.shadow + weights.rad;
+  const note = sum <= 0
+    ? "Move a slider to color safer ground green and less safe ground red."
+    : `Hazards ${weights.hazard}, sunlight ${weights.sun}, shadows ${weights.shadow}, radiation ${weights.rad}.`;
+  return `<div class="legend-row"><span class="name">Landing safety</span><span class="bar" style="background:linear-gradient(90deg,#20a05a,#e6be28,#d23030)"></span><span>safer</span><span>less safe</span></div><div class="note">${esc(note)}</div>`;
 }
 
 function viewOf(slot: string) {
@@ -418,6 +568,7 @@ function showTwin(m: Match | null) {
     panel.hidden = true;
     ranks.innerHTML = "";
     parts.innerHTML = "";
+    $<HTMLElement>("#twinSafety").innerHTML = "";
     return;
   }
   const token = ++twinToken;
@@ -434,7 +585,8 @@ function showTwin(m: Match | null) {
     const button = document.createElement("button");
     button.type = "button";
     button.classList.toggle("on", match.rank === m.rank);
-    button.textContent = `#${match.rank} ${match.similarity.toFixed(1)}%`;
+    button.dataset.rank = String(match.rank);
+    button.textContent = rankSafetyText(match);
     button.addEventListener("click", () => {
       const row = $<HTMLTableSectionElement>("#results tbody").children[match.rank - 1];
       row?.dispatchEvent(new Event("click"));
@@ -456,6 +608,45 @@ function showTwin(m: Match | null) {
   };
   void fill(left, m.a);
   void fill(right, m.b);
+  void fillTwinSafety(m, token);
+}
+
+function rankSafetySuffix(match: Match) {
+  const grid = safetyReady.get(bodyKey(match.b.body));
+  if (!grid) return "";
+  const score = landingSafety(sampleSafety(grid, bodyKey(match.b.body), match.b.lat, match.b.lon));
+  return score == null ? "" : ` · ${score.toFixed(0)}% safe`;
+}
+
+function rankSafetyText(match: Match) {
+  return `#${match.rank} ${match.similarity.toFixed(1)}%${rankSafetySuffix(match)}`;
+}
+
+function refreshRankSafety() {
+  document.querySelectorAll<HTMLButtonElement>("#twinRanks button").forEach((button) => {
+    const match = shownMatches.matches.find((item) => item.rank === Number(button.dataset.rank));
+    if (match) button.textContent = rankSafetyText(match);
+  });
+}
+
+async function fillTwinSafety(match: Match, token: number) {
+  const box = $<HTMLElement>("#twinSafety");
+  box.innerHTML = "";
+  try {
+    const [left, right] = await Promise.all([
+      api<SafetyCell>(`/api/safety?body=${bodyKey(match.a.body)}&lat=${match.a.lat}&lon=${match.a.lon}`),
+      api<SafetyCell>(`/api/safety?body=${bodyKey(match.b.body)}&lat=${match.b.lat}&lon=${match.b.lon}`),
+    ]);
+    if (token !== twinToken) return;
+    const card = (title: string, cell: SafetyCell) => {
+      const score = landingSafety({ hazard: cell.hazard, sun: cell.sunlight, shadow: cell.shadow, rad: cell.radiation });
+      const heading = score == null ? title : `${title}: ${score.toFixed(0)}% safe with your priorities`;
+      return `<div><h3>${esc(heading)}</h3><ul>${cell.dangers.map((line) => `<li>${esc(line)}</li>`).join("")}</ul><p class="note">${esc(cell.radiation_note)}</p></div>`;
+    };
+    box.innerHTML = card(match.a.body, left) + card(match.b.body, right);
+  } catch {
+    if (token === twinToken) box.innerHTML = "";
+  }
 }
 
 function watchSpot(el: HTMLElement, site: Site, match: Match | null) {
@@ -469,6 +660,7 @@ function openCard(ev: MouseEvent, site: Site, match: Match | null) {
   const card = $<HTMLElement>("#placecard");
   const img = $<HTMLImageElement>("#spotImg");
   $("#spotName").textContent = placeName(site);
+  $("#spotSafety").textContent = "";
   fillSpotFacts(site);
   img.alt = placeName(site);
   img.src = `/api/place-image?body=${bodyKey(site.body)}&lat=${site.lat.toFixed(3)}&lon=${site.lon.toFixed(3)}&km=120`;
@@ -476,6 +668,11 @@ function openCard(ev: MouseEvent, site: Site, match: Match | null) {
   card.hidden = false;
   moveCard(ev);
   showTwin(match ?? shownMatches.matches[0] ?? null);
+  void api<SafetyCell>(`/api/safety?body=${bodyKey(site.body)}&lat=${site.lat}&lon=${site.lon}`).then((cell) => {
+    if (token !== cardToken) return;
+    const score = landingSafety({ hazard: cell.hazard, sun: cell.sunlight, shadow: cell.shadow, rad: cell.radiation });
+    $("#spotSafety").textContent = `${score == null ? "Set a priority to score this spot." : `${score.toFixed(0)}% safe with your priorities.`} ${cell.dangers[0] || ""}`;
+  }).catch(() => undefined);
   void placeFor(bodyKey(site.body), site.lat, site.lon).then((found) => {
     if (token !== cardToken) return;
     $("#spotName").textContent = found.name;
@@ -704,8 +901,12 @@ function wireMap(slot: string) {
     clearTimeout(pending);
     pending = setTimeout(async () => {
       try {
-        const h = await api<{ surface: string }>(`/api/height?body=${body}&lat=${lat}&lon=${lon}&source=${source()}`);
-        $(`#hover-${slot}`).textContent = `${fmtLL(lat, lon)}: ${h.surface}`;
+        const h = await api<{ surface: string; safety?: SafetyCell }>(`/api/height?body=${body}&lat=${lat}&lon=${lon}&source=${source()}`);
+        const safety = h.safety;
+        const score = safety ? landingSafety({ hazard: safety.hazard, sun: safety.sunlight, shadow: safety.shadow, rad: safety.radiation }) : null;
+        const scoreText = score == null ? "" : ` Landing safety ${score.toFixed(0)}% with your priorities.`;
+        const facts = safety ? ` ${safety.dangers.slice(0, 4).join(" ")}` : "";
+        $(`#hover-${slot}`).textContent = `${fmtLL(lat, lon)}: ${h.surface}.${scoreText}${facts}`;
       } catch { /* hover is best-effort */ }
     }, 60);
   });
@@ -917,7 +1118,8 @@ function syncFrames(slot: string, key: string) {
   const stack = $(`#map-${slot}`);
   const ids = usableLayers(key);
   stack.querySelectorAll<HTMLElement>(".mapframe").forEach((frame) => {
-    if (!ids.includes(frame.dataset.layer || "")) frame.remove();
+    const layer = frame.dataset.layer || "";
+    if (layer !== "safety" && !ids.includes(layer)) frame.remove();
   });
   stack.querySelector(":scope > .note")?.remove();
   if (!ids.length) {
@@ -940,6 +1142,17 @@ function syncFrames(slot: string, key: string) {
     if (legend) legend.innerHTML = legendOne(key, id);
     stack.appendChild(frame);
   }
+  let safety = stack.querySelector<HTMLElement>(`.mapframe[data-layer="safety"]`);
+  if (!safety) {
+    safety = document.createElement("div");
+    safety.className = "mapframe";
+    safety.dataset.layer = "safety";
+    safety.innerHTML = `<div class="frametitle">Landing safety</div><div class="mapwrap"><div class="mapview"><canvas class="blend"></canvas></div><button type="button" class="mapreset" hidden>Reset view</button></div><div class="legend"></div>`;
+    stack.prepend(safety);
+  }
+  const legend = safety.querySelector(".legend");
+  if (legend) legend.innerHTML = safetyLegend();
+  stack.prepend(safety);
   applyView(slot);
 }
 
@@ -948,7 +1161,10 @@ function schedulePaint() {
   paintQueued = true;
   requestAnimationFrame(() => {
     paintQueued = false;
-    for (const [slot, key] of Object.entries(slots())) void paintBlend(slot, key);
+    for (const [slot, key] of Object.entries(slots())) {
+      void paintBlend(slot, key);
+      void paintSafety(slot, key);
+    }
   });
 }
 
@@ -957,6 +1173,7 @@ async function paintBlend(slot: string, key: string) {
   const frames = Array.from(document.querySelectorAll<HTMLElement>(`#map-${slot} .mapframe`));
   await Promise.all(frames.map(async (frame) => {
     const id = frame.dataset.layer || "";
+    if (id === "safety") return;
     const canvas = frame.querySelector("canvas");
     if (!canvas) return;
     const img = await loadMap(mapUrl(key, id)).catch(() => null);
@@ -968,6 +1185,27 @@ async function paintBlend(slot: string, key: string) {
     canvas.height = height;
     canvas.getContext("2d")?.drawImage(img, 0, 0, width, height);
   }));
+}
+
+async function paintSafety(slot: string, key: string) {
+  const frame = document.querySelector<HTMLElement>(`#map-${slot} .mapframe[data-layer="safety"]`);
+  const canvas = frame?.querySelector("canvas");
+  if (!frame || !canvas) return;
+  const legend = frame.querySelector(".legend");
+  if (legend) legend.innerHTML = safetyLegend();
+  try {
+    const grid = await loadSafety(key);
+    const colored = colorSafety(key, grid);
+    const width = Math.max(480, Math.round((canvas.clientWidth || $(`#map-${slot}`).clientWidth) * Math.min(window.devicePixelRatio || 1, 2)));
+    const height = Math.round(width / 2);
+    canvas.hidden = false;
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d")?.drawImage(colored, 0, 0, width, height);
+    refreshRankSafety();
+  } catch {
+    canvas.hidden = true;
+  }
 }
 
 function renderValidation() {
@@ -1092,6 +1330,33 @@ async function init() {
   $<HTMLSelectElement>("#bodyA").value = "earth";
   $<HTMLSelectElement>("#bodyB").value = "moon";
   wireMap("A"); wireMap("B"); wireMap("C");
+  const writePriority = () => {
+    const weights = priorities();
+    $("#priHazardOut").textContent = String(weights.hazard);
+    $("#priSunOut").textContent = String(weights.sun);
+    $("#priShadowOut").textContent = String(weights.shadow);
+    $("#priRadOut").textContent = String(weights.rad);
+  };
+  document.querySelectorAll<HTMLInputElement>("#safetyBar input").forEach((input) => {
+    input.addEventListener("input", () => {
+      writePriority();
+      schedulePaint();
+      refreshRankSafety();
+    });
+  });
+  document.querySelectorAll<HTMLButtonElement>("#safetyBar button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const preset = PRESETS[button.dataset.preset || ""];
+      if (!preset) return;
+      $<HTMLInputElement>("#priHazard").value = String(preset.hazard);
+      $<HTMLInputElement>("#priSun").value = String(preset.sun);
+      $<HTMLInputElement>("#priShadow").value = String(preset.shadow);
+      $<HTMLInputElement>("#priRad").value = String(preset.rad);
+      writePriority();
+      schedulePaint();
+      refreshRankSafety();
+    });
+  });
   renderPair();
   renderValidation();
   void loadSearches();
