@@ -1,3 +1,5 @@
+import { refreshWorldMap, setPreviewWorld } from "./world.ts";
+
 type BodyInfo = {
   name: string;
   source_name: string;
@@ -575,6 +577,7 @@ function showTwin(m: Match | null) {
     ranks.innerHTML = "";
     parts.innerHTML = "";
     $<HTMLElement>("#twinSafety").innerHTML = "";
+    setPreviewWorld(null);
     return;
   }
   const token = ++twinToken;
@@ -583,6 +586,7 @@ function showTwin(m: Match | null) {
   $("#twinRoleB").textContent = `Match on ${m.b.body}`;
   $("#twinSub").textContent = `match #${m.rank}`;
   $("#twinSim").textContent = `${mapAverage(m).toFixed(1)}%`;
+  setPreviewWorld({ a: m.a, b: m.b });
   $("#twinDiff").innerHTML = `average of the maps<br>height difference ${m.elevation_difference_m >= 0 ? "+" : ""}${fmtM(m.elevation_difference_m)}`;
   parts.innerHTML = (m.maps ?? []).map((row) =>
     `<div class="part"><span>${esc(row.label)}</span><b>${row.percent == null ? "n/a" : `${row.percent.toFixed(1)}%`}</b></div>`).join("");
@@ -1382,6 +1386,7 @@ async function init() {
     }
     sessionMaps = payload.updates ?? sessionMaps;
     mapStamp += 1;
+    refreshWorldMap();
     mapImages.clear();
     safetyGrids.clear();
     safetyReady.clear();

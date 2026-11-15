@@ -96,6 +96,22 @@
     <div id="twinSafety" class="twin-safety"></div>
   </section>
 
+  <section class="panel" id="worldPanel" hidden>
+    <h2>Preview world <small id="worldWhere"></small></h2>
+    <div class="world-bar">
+      <div class="toggle" id="worldPlace" role="group" aria-label="Which place">
+        <button type="button" data-side="a">Your point</button>
+        <button type="button" data-side="b" class="on">Match</button>
+      </div>
+      <div class="world-layers" id="worldLayers" role="group" aria-label="Map overlay"></div>
+    </div>
+    <div id="worldStage">
+      <canvas id="worldCanvas" tabindex="0" aria-label="First person view of this place"></canvas>
+      <div class="cross" aria-hidden="true"></div>
+    </div>
+    <p class="note" id="worldHint">Click the world, then look with the mouse. W A S D walks. Shift is faster.</p>
+  </section>
+
   <section class="panel">
     <h2>Results <small>the percentage is the average of every map; click a row to see the terrain measurements</small></h2>
     <div class="status" id="status">Loading…</div>

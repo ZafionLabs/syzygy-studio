@@ -479,6 +479,45 @@ def test_new_map_replaces_the_bundled_one(tmp_path, monkeypatch):
         server.shutdown()
 
 
+def test_ground_patch_matches_the_map_window():
+    import io
+
+    from terrain_bot import heightmap_from_array
+    from terrain_bot.ground import ground_grid, ground_png
+
+    gray = np.full((90, 180), 10.0)
+    gray[45, 90] = 250.0
+    hm = heightmap_from_array(gray, EARTH)
+    grid = ground_grid(hm, lat=0.0, lon=0.0, span_km=400, samples=11)
+    assert grid["rows"] == 11 and grid["cols"] == 11
+    assert len(grid["elevation_m"]) == 121
+    center = grid["elevation_m"][5 * 11 + 5]
+    corner = grid["elevation_m"][0]
+    assert center > corner
+
+    image = Image.new("RGB", (360, 180), (0, 0, 40))
+    for x in range(360):
+        for y in range(40):
+            image.putpixel((x, y), (220, 20, 20))
+    raw = io.BytesIO()
+    image.save(raw, format="PNG")
+    cropped = Image.open(io.BytesIO(ground_png(raw.getvalue(), 50, 10, EARTH.mean_radius_km, span_km=400)))
+    top = cropped.getpixel((256, 8))
+    bottom = cropped.getpixel((256, 500))
+    assert top[0] > bottom[0]
+
+    seam = Image.new("RGB", (360, 180), (0, 0, 0))
+    for y in range(180):
+        seam.putpixel((0, y), (255, 0, 0))
+        seam.putpixel((359, y), (0, 0, 255))
+    raw = io.BytesIO()
+    seam.save(raw, format="PNG")
+    joined = Image.open(io.BytesIO(ground_png(raw.getvalue(), 0, 180, EARTH.mean_radius_km, span_km=400)))
+    assert joined.size == (512, 512)
+    assert joined.getpixel((128, 256))[2] > joined.getpixel((128, 256))[0]
+    assert joined.getpixel((384, 256))[0] > joined.getpixel((384, 256))[2]
+
+
 def test_compare_maps_scores_every_map():
     from terrain_bot.layers import compare_maps
 
