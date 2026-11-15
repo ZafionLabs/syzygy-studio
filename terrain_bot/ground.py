@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import io
 import math
+import threading
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from urllib.request import Request, urlopen
 
 import numpy as np
@@ -215,6 +217,64 @@ def satellite_png(
     out = io.BytesIO()
     Image.fromarray(sampled.astype(np.uint8), "RGB").save(out, format="PNG")
     return out.getvalue()
+
+
+_GLOBE_LOCK = threading.Lock()
+_GLOBE_CACHE = Path("/tmp/terrain-earth-globe-z4.png")
+
+
+def earth_globe_png(zoom: int = 4, width: int = 2048, fetch=None) -> bytes | None:
+    """Equirectangular Google satellite image of the whole Earth, north at the top."""
+    use_disk = fetch is None and zoom == 4 and width == 2048
+    if use_disk and _GLOBE_CACHE.exists() and _GLOBE_CACHE.stat().st_size > 1000:
+        return _GLOBE_CACHE.read_bytes()
+    with _GLOBE_LOCK:
+        if use_disk and _GLOBE_CACHE.exists() and _GLOBE_CACHE.stat().st_size > 1000:
+            return _GLOBE_CACHE.read_bytes()
+        tiles_n = 1 << zoom
+        height = width // 2
+        fetch = fetch or _google_tile
+        wanted = [(zoom, x, y) for y in range(tiles_n) for x in range(tiles_n)]
+        if fetch is _google_tile:
+            with ThreadPoolExecutor(max_workers=16) as pool:
+                loaded = list(pool.map(lambda item: (item, fetch(*item)), wanted))
+        else:
+            loaded = [(item, fetch(*item)) for item in wanted]
+        tiles = {(x, y): np.asarray(tile) for (z, x, y), tile in loaded if tile is not None}
+        if len(tiles) < max(1, len(wanted) // 2):
+            return None
+        canvas = np.zeros((tiles_n * TILE, tiles_n * TILE, 3), np.uint8)
+        for (x, y), tile in tiles.items():
+            picture = np.asarray(Image.fromarray(tile).convert("RGB").resize((TILE, TILE)))
+            canvas[y * TILE:(y + 1) * TILE, x * TILE:(x + 1) * TILE] = picture
+        rows = np.linspace(90.0, -90.0, height, endpoint=False)
+        rows = rows - (rows[1] - rows[0]) / 2.0 if height > 1 else rows
+        cols = np.linspace(-180.0, 180.0, width, endpoint=False)
+        cols = cols + (cols[1] - cols[0]) / 2.0 if width > 1 else cols
+        lat_grid = np.repeat(rows[:, None], width, axis=1)
+        lon_grid = np.repeat(cols[None, :], height, axis=0)
+        xs, ys = _mercator(lat_grid, lon_grid, zoom)
+        limit = tiles_n * TILE - 1.001
+        ix = np.clip(xs, 0, limit)
+        iy = np.clip(ys, 0, limit)
+        x_i = np.floor(ix).astype(int)
+        y_i = np.floor(iy).astype(int)
+        x_j = np.clip(x_i + 1, 0, tiles_n * TILE - 1)
+        y_j = np.clip(y_i + 1, 0, tiles_n * TILE - 1)
+        tx = (ix - x_i)[..., None]
+        ty = (iy - y_i)[..., None]
+        sampled = (
+            canvas[y_i, x_i] * (1 - ty) * (1 - tx)
+            + canvas[y_i, x_j] * (1 - ty) * tx
+            + canvas[y_j, x_i] * ty * (1 - tx)
+            + canvas[y_j, x_j] * ty * tx
+        )
+        out = io.BytesIO()
+        Image.fromarray(sampled.astype(np.uint8), "RGB").save(out, format="PNG")
+        raw = out.getvalue()
+        if use_disk:
+            _GLOBE_CACHE.write_bytes(raw)
+        return raw
 
 
 def ground_png(raw: bytes, lat: float, lon: float, radius_km: float, span_km: float = SPAN_KM) -> bytes:

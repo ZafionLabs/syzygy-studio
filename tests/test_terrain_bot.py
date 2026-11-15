@@ -537,6 +537,18 @@ def test_earth_satellite_uses_the_tile_under_the_place():
     assert satellite_png(0.0, 0.0, EARTH.mean_radius_km, fetch=lambda *_: None) is None
 
 
+def test_earth_globe_is_a_full_planet_photo():
+    from terrain_bot.ground import earth_globe_png
+
+    def tile(zoom, x, y):
+        return np.full((256, 256, 3), ((x * 30) % 255, (y * 40) % 255, 90), np.uint8)
+
+    image = Image.open(io.BytesIO(earth_globe_png(zoom=1, width=32, fetch=tile)))
+    assert image.size == (32, 16)
+    assert image.getpixel((16, 8)) != (0, 0, 0)
+    assert earth_globe_png(zoom=1, width=8, fetch=lambda *_: None) is None
+
+
 def test_compare_maps_scores_every_map():
     from terrain_bot.layers import compare_maps
 
