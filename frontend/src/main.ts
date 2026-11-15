@@ -1344,14 +1344,13 @@ async function init() {
   const mapShapeError = "That picture is not a global map. It has to be twice as wide as it is tall, at least 128 by 64 pixels, with north at the top and 180° west at the left.";
   const checkMapFile = async (kind: string, file: File) => {
     const name = file.name.toLowerCase();
-    if (kind === "elevation") {
-      if (!name.endsWith(".npz") && !name.endsWith(".npy")) {
-        throw new Error("That is a picture. Elevation has to be a .npz or .npy grid of heights in metres.");
-      }
-      return;
-    }
+    if (kind === "elevation" && (name.endsWith(".npz") || name.endsWith(".npy"))) return;
     const bitmap = await createImageBitmap(file).catch(() => null);
-    if (!bitmap) throw new Error("That file is not an image map.");
+    if (!bitmap) {
+      throw new Error(kind === "elevation"
+        ? "Elevation has to be a .npz or .npy height grid, or an image map of the whole body."
+        : "That file is not an image map.");
+    }
     const ratio = bitmap.width / bitmap.height;
     const tooSmall = bitmap.width < 128 || bitmap.height < 64;
     const wrongShape = Math.abs(ratio - 2) > 0.05;
@@ -1405,10 +1404,12 @@ async function init() {
       state.className = "state";
       const drop = document.createElement("label");
       drop.className = "drop";
-      drop.append("Drop the new map here");
+      drop.append(kind === "elevation" ? "Drop an image map or a height grid" : "Drop an image map");
       const input = document.createElement("input");
       input.type = "file";
-      input.accept = kind === "elevation" ? ".npz,.npy" : "image/*";
+      input.accept = kind === "elevation"
+        ? "image/*,.png,.jpg,.jpeg,.gif,.webp,.tif,.tiff,.bmp,.npz,.npy"
+        : "image/*,.png,.jpg,.jpeg,.gif,.webp,.tif,.tiff,.bmp";
       input.addEventListener("change", () => {
         const file = input.files?.[0];
         input.value = "";

@@ -2,10 +2,11 @@
 
 A file in ``data/updates`` is used instead of the bundled map for that body.
 Elevation is a NumPy ``.npz`` with an ``elevation`` array in metres, plus
-optional ``lat_range`` and ``lon_range``. Every other map is an image in the same
-simple-cylindrical frame as the built-in maps: north at the top, 180°W at the left,
-twice as wide as it is tall. PNG, JPEG, and any other image format the server can
-read are accepted. A picture that is not that shape is refused.
+optional ``lat_range`` and ``lon_range``, or an image of the whole body whose
+brightness is scaled from that body's lowest point to its highest. Every other
+map is an image in the same simple-cylindrical frame: north at the top, 180°W
+at the left, twice as wide as it is tall. PNG, JPEG, and any other image format
+the server can read are accepted. A picture that is not that shape is refused.
 """
 
 from __future__ import annotations
@@ -15,6 +16,9 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+
+from .bodies import get_body
+from .heightmap import calibrate
 
 UPDATE_DIR = Path(__file__).resolve().parents[1] / "data" / "updates"
 BODIES = ("earth", "moon", "mars")
@@ -87,14 +91,16 @@ def _looks_like_picture(raw: bytes) -> bool:
     )
 
 
-def _layer_png(raw: bytes) -> bytes:
-    if len(raw) > MAX_BYTES:
-        raise ValueError("map is larger than 80 MB")
+def _open_image(raw: bytes) -> Image.Image:
     try:
         image = Image.open(io.BytesIO(raw))
         image.load()
     except Exception as exc:
         raise ValueError("That file is not an image the bot can read.") from exc
+    return image
+
+
+def _require_map_image(image: Image.Image) -> None:
     if image.width > 8192 or image.height > 8192:
         raise ValueError("map image must be at most 8192 pixels on each side")
     ratio = image.width / image.height
@@ -103,14 +109,39 @@ def _layer_png(raw: bytes) -> bytes:
             "That picture is not a global map. It has to be twice as wide as it is tall, "
             "at least 128 by 64 pixels, with north at the top and 180° west at the left."
         )
+
+
+def _layer_png(raw: bytes) -> bytes:
+    if len(raw) > MAX_BYTES:
+        raise ValueError("map is larger than 80 MB")
+    image = _open_image(raw)
+    _require_map_image(image)
     out = io.BytesIO()
     image.convert("RGB").save(out, format="PNG")
     return out.getvalue()
 
 
-def _as_elevation_npz(raw: bytes, filename: str) -> bytes:
+def _image_elevation_npz(raw: bytes, body: str) -> bytes:
+    image = _open_image(raw)
+    _require_map_image(image)
+    gray = np.asarray(image.convert("L"), dtype=np.float64)
+    try:
+        elevation, _, _ = calibrate(gray, np.ones(gray.shape, dtype=bool), get_body(body))
+    except ValueError as exc:
+        raise ValueError("That image has no height variation, so it cannot be used as an elevation map.") from exc
+    out = io.BytesIO()
+    np.savez_compressed(
+        out,
+        elevation=elevation,
+        lat_range=np.array((-90.0, 90.0)),
+        lon_range=np.array((-180.0, 180.0)),
+    )
+    return out.getvalue()
+
+
+def _as_elevation_npz(raw: bytes, filename: str, body: str) -> bytes:
     if _looks_like_picture(raw):
-        raise ValueError("That is a picture. Elevation has to be a .npz or .npy grid of heights in metres.")
+        return _image_elevation_npz(raw, body)
     if filename.lower().endswith(".npy"):
         try:
             elev = np.load(io.BytesIO(raw), allow_pickle=False)
@@ -126,7 +157,7 @@ def prepare_map(body: str, kind: str, raw: bytes, filename: str = "") -> dict:
     """Validate ``raw`` and return the bytes to use for one browser visit."""
     body, kind = _check_body_kind(body, kind)
     if kind == "elevation":
-        payload = _as_elevation_npz(raw, filename)
+        payload = _as_elevation_npz(raw, filename, body)
         name = f"{body}_elevation.npz"
     else:
         payload = _layer_png(raw)

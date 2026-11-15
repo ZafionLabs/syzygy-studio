@@ -362,8 +362,15 @@ def test_prepare_map_refuses_pictures():
     Image.new("RGB", (400, 300), (9, 9, 9)).save(photo, format="JPEG")
     with pytest.raises(ValueError, match="not a global map"):
         prepare_map("mars", "geology", photo.getvalue(), "shot.jpg")
-    with pytest.raises(ValueError, match="picture"):
+    with pytest.raises(ValueError, match="not a global map"):
         prepare_map("mars", "elevation", photo.getvalue(), "shot.jpg")
+    elev_image = io.BytesIO()
+    Image.fromarray(np.tile(np.linspace(0, 255, 160), (80, 1)).astype(np.uint8), mode="L").save(elev_image, format="JPEG")
+    elev = prepare_map("moon", "elevation", elev_image.getvalue(), "lola.jpg")
+    assert elev["file"] == "moon_elevation.npz"
+    with np.load(io.BytesIO(elev["payload"])) as packed:
+        assert packed["elevation"].shape == (80, 160)
+        assert np.isfinite(packed["elevation"]).all()
     square = io.BytesIO()
     Image.new("RGB", (128, 128), (1, 2, 3)).save(square, format="PNG")
     with pytest.raises(ValueError, match="not a global map"):
