@@ -64,6 +64,16 @@
   .risk, .bad { color: var(--hi); font-weight: 700; }
   .twin .role { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
   @media (max-width: 800px) { .twin, .twin-safety { grid-template-columns: 1fr; } }
+  .place-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 900px) { .place-cols { grid-template-columns: 1fr; } }
+  .place-cols h3 { margin: 0 0 8px; font-size: 16px; }
+  .spot { border: 1px dashed var(--line); border-radius: 10px; padding: 10px; margin-bottom: 10px; background: #0f1520; }
+  .spot.over, .spot:focus-within { border-color: var(--accent); }
+  .spot.using { border-style: solid; border-color: var(--ok); }
+  .spot h4 { margin: 0; font-size: 14px; }
+  .spot .state { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+  .spot .drop { display: block; margin-top: 8px; padding: 16px 8px; text-align: center; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); cursor: pointer; }
+  .spot .drop input { display: none; }
   .mix { display: flex; flex-wrap: wrap; gap: 8px; }
   .mix-item { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; }
   .mix-item button { border: none; background: transparent; color: var(--muted); }

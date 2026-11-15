@@ -995,6 +995,13 @@ function fillBodySelects() {
 }
 
 function applyChrome() {
+  const placing = searchMode === "place";
+  $<HTMLElement>("#placeTab").hidden = !placing;
+  $<HTMLElement>("#matchView").hidden = placing;
+  $<HTMLElement>("#matchTools").hidden = placing;
+  $<HTMLElement>("#layerBar").hidden = placing;
+  $<HTMLElement>("#safetyBar").hidden = placing;
+  if (placing) return;
   const onEarth = earthMode();
   $("#maps").classList.toggle("earth-mode", onEarth);
   $<HTMLElement>("#pairBodies").hidden = onEarth;
@@ -1017,6 +1024,7 @@ function applyChrome() {
 
 function renderPair() {
   applyChrome();
+  if (searchMode === "place") return;
   clearMarkers(true);
   for (const [slot, key] of Object.entries(slots())) {
     const b = bodies()[key];
@@ -1282,26 +1290,25 @@ async function init() {
   for (const [key, s] of Object.entries(INFO.sources)) sel.add(new Option(s.label, key));
   sel.value = INFO.default_source;
   fillBodySelects();
-  const updateBody = $<HTMLSelectElement>("#updateBody");
-  Object.entries(bodies()).forEach(([key, body]) => updateBody.add(new Option(body.name, key)));
-  const writeUpdates = () => {
-    const rows = INFO?.updates ?? [];
-    $("#updateNote").textContent = rows.length
-      ? `In use now: ${rows.map((row) => `${bodies()[row.body]?.name ?? row.body} ${row.kind} (${row.file})`).join("; ")}.`
-      : "An elevation file is a .npz (or .npy) grid in metres. Any other map is a PNG, north at the top and 180° west at the left. The bot uses that file instead of the bundled map.";
+  const mapKinds: [string, string][] = [
+    ["elevation", "Elevation"],
+    ["temperature", "Temperature"],
+    ["ice-water", "Ice and water"],
+    ["geology", "Geology"],
+    ["weather", "Weather"],
+    ["light", "Light"],
+    ["radiation", "Radiation"],
+  ];
+  const paintPlaceSpots = () => {
+    document.querySelectorAll<HTMLElement>("#placeGrid .spot").forEach((spot) => {
+      const row = INFO?.updates?.find((item) => item.body === spot.dataset.body && item.kind === spot.dataset.kind);
+      const state = spot.querySelector(".state");
+      if (state) state.textContent = row ? `Using ${row.file}` : "Bundled map";
+      spot.classList.toggle("using", Boolean(row));
+    });
   };
-  writeUpdates();
-  $("#updateGo").addEventListener("click", () => void (async () => {
-    const input = $<HTMLInputElement>("#updateFile");
-    const file = input.files?.[0];
-    const note = $("#updateNote");
-    if (!file) {
-      note.textContent = "Choose the new map file first.";
-      return;
-    }
-    const body = val("#updateBody");
-    const kind = val("#updateKind");
-    note.textContent = `Reading ${file.name}…`;
+  const useMapFile = async (body: string, kind: string, file: File, state: HTMLElement) => {
+    state.textContent = `Reading ${file.name}…`;
     const response = await fetch(`/api/maps?body=${encodeURIComponent(body)}&kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(file.name)}`, {
       method: "POST",
       headers: { "content-type": "application/octet-stream" },
@@ -1309,7 +1316,7 @@ async function init() {
     });
     const payload = await response.json() as { error?: string; file?: string };
     if (!response.ok) {
-      note.textContent = payload.error || "That map could not be used.";
+      state.textContent = payload.error || "That map could not be used.";
       return;
     }
     INFO = await api<Info>("/api/info");
@@ -1317,9 +1324,50 @@ async function init() {
     mapImages.clear();
     safetyGrids.clear();
     safetyReady.clear();
-    renderPair();
-    note.textContent = `${bodies()[body]?.name ?? body} ${kind} now uses ${payload.file}.`;
-  })());
+    paintPlaceSpots();
+  };
+  const grid = $("#placeGrid");
+  for (const key of ["earth", "moon", "mars"].filter((name) => bodies()[name])) {
+    const column = document.createElement("div");
+    const title = document.createElement("h3");
+    title.textContent = bodies()[key].name;
+    column.appendChild(title);
+    for (const [kind, label] of mapKinds) {
+      if (kind !== "elevation" && LAYERS?.bodies[key]?.[kind]?.available === false) continue;
+      const spot = document.createElement("article");
+      spot.className = "spot";
+      spot.dataset.body = key;
+      spot.dataset.kind = kind;
+      const head = document.createElement("h4");
+      head.textContent = label;
+      const state = document.createElement("p");
+      state.className = "state";
+      const drop = document.createElement("label");
+      drop.className = "drop";
+      drop.append("Drop the new map here");
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = kind === "elevation" ? ".npz,.npy" : ".png,image/png";
+      input.addEventListener("change", () => {
+        const file = input.files?.[0];
+        input.value = "";
+        if (file) void useMapFile(key, kind, file, state);
+      });
+      drop.appendChild(input);
+      spot.append(head, state, drop);
+      spot.addEventListener("dragover", (ev) => { ev.preventDefault(); spot.classList.add("over"); });
+      spot.addEventListener("dragleave", () => spot.classList.remove("over"));
+      spot.addEventListener("drop", (ev) => {
+        ev.preventDefault();
+        spot.classList.remove("over");
+        const file = ev.dataTransfer?.files?.[0];
+        if (file) void useMapFile(key, kind, file, state);
+      });
+      column.appendChild(spot);
+    }
+    grid.appendChild(column);
+  }
+  paintPlaceSpots();
   $<HTMLSelectElement>("#bodyA").value = "earth";
   $<HTMLSelectElement>("#bodyB").value = "moon";
   wireMap("A"); wireMap("B"); wireMap("C");
@@ -1377,6 +1425,7 @@ async function init() {
       setSearchMode(btn.dataset.mode || "on-earth");
       lastQuery = null;
       renderPair();
+      if (searchMode === "place") return;
       $<HTMLElement>("#results").hidden = true;
       $("#steps").innerHTML = "";
       $<HTMLElement>("#breakdownWrap").hidden = true;
