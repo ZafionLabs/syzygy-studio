@@ -193,17 +193,11 @@ function mapUrl(key: string, id: string) {
   return id === "elevation" ? `/map/${source()}/${key}.png?v=${mapStamp}` : `/map/layer/${key}/${id}.png?v=${mapStamp}`;
 }
 
-const PRESETS: Record<string, Priorities> = {
-  balanced: { hazard: 25, sun: 25, shadow: 25, rad: 25 },
-  flat: { hazard: 100, sun: 0, shadow: 0, rad: 0 },
-  sun: { hazard: 0, sun: 100, shadow: 0, rad: 0 },
-  shadow: { hazard: 0, sun: 0, shadow: 100, rad: 0 },
-  radiation: { hazard: 0, sun: 0, shadow: 0, rad: 100 },
-};
+const SAFETY_WEIGHTS: Priorities = { hazard: 45, sun: 20, shadow: 20, rad: 15 };
 
-function priorities(): Priorities {
-  const num = (id: string) => Number((document.querySelector(id) as HTMLInputElement).value) || 0;
-  return { hazard: num("#priHazard"), sun: num("#priSun"), shadow: num("#priShadow"), rad: num("#priRad") };
+function readFactor(cell: { hazard: number; sunlight: number; shadow: number; radiation: number }): Priorities {
+  const pct = (value: number) => Math.max(0, Math.min(100, Math.round(value * 100)));
+  return { hazard: pct(cell.hazard), sun: pct(cell.sunlight), shadow: pct(cell.shadow), rad: pct(cell.radiation) };
 }
 
 const RISK_LABELS: Record<string, string> = { hazard: "Hazards", sun: "Sunlight", shadow: "Shadows", rad: "Radiation" };
@@ -223,6 +217,31 @@ function showHighRisk(flags: string[]) {
   }
 }
 
+let factorToken = 0;
+
+function applyFactorReadout(cell: SafetyCell) {
+  const levels = readFactor(cell);
+  $<HTMLInputElement>("#priHazard").value = String(levels.hazard);
+  $<HTMLInputElement>("#priSun").value = String(levels.sun);
+  $<HTMLInputElement>("#priShadow").value = String(levels.shadow);
+  $<HTMLInputElement>("#priRad").value = String(levels.rad);
+  $("#priHazardOut").textContent = String(levels.hazard);
+  $("#priSunOut").textContent = String(levels.sun);
+  $("#priShadowOut").textContent = String(levels.shadow);
+  $("#priRadOut").textContent = String(levels.rad);
+  showHighRisk(highRisks({ hazard: cell.hazard, sun: cell.sunlight, shadow: cell.shadow, rad: cell.radiation }));
+  $("#safetyHint").textContent = "These readings belong to the place you pressed. They cannot be dragged.";
+}
+
+async function showPlaceFactors(body: string, lat: number, lon: number) {
+  const token = ++factorToken;
+  try {
+    const cell = await api<SafetyCell>(`/api/safety?body=${bodyKey(body)}&lat=${lat}&lon=${lon}`);
+    if (token !== factorToken) return;
+    applyFactorReadout(cell);
+  } catch { /* the last pressed place stays on the sliders */ }
+}
+
 function highRiskSentence(flags: string[]) {
   if (!flags.length) return "";
   return flags.map((key) => `${RISK_LABELS[key]}: high risk.`).join(" ");
@@ -239,7 +258,7 @@ function factorRows(cell: SafetyCell) {
     `<div class="part"><span>${name}</span><span>${high ? `<b class="bad">High risk</b> ` : ""}${esc(detail)}</span></div>`).join("");
 }
 
-function landingSafety(cell: { hazard: number; sun: number; shadow: number; rad: number }, weights = priorities()) {
+function landingSafety(cell: { hazard: number; sun: number; shadow: number; rad: number }, weights = SAFETY_WEIGHTS) {
   const sum = weights.hazard + weights.sun + weights.shadow + weights.rad;
   if (sum <= 0) return null;
   const bad = (weights.hazard * cell.hazard + weights.sun * (1 - cell.sun) + weights.shadow * cell.shadow + weights.rad * cell.rad) / sum;
@@ -451,6 +470,7 @@ function goToCoordinates() {
     $("#status").textContent = "Enter coordinates like 18.1 N, 18.4 W or 18.1, -18.4.";
     return;
   }
+  void showPlaceFactors(val("#coordBody"), parsed.lat, parsed.lon);
   void runQuery(val("#coordBody"), parsed.lat.toFixed(3), parsed.lon.toFixed(3));
 }
 
@@ -571,6 +591,7 @@ function showTwin(m: Match | null) {
     button.dataset.rank = String(match.rank);
     button.textContent = rankSafetyText(match);
     button.addEventListener("click", () => {
+      void showPlaceFactors(match.b.body, match.b.lat, match.b.lon);
       const row = $<HTMLTableSectionElement>("#results tbody").children[match.rank - 1];
       row?.dispatchEvent(new Event("click"));
     });
@@ -623,11 +644,10 @@ async function fillTwinSafety(match: Match, token: number) {
     if (token !== twinToken) return;
     const card = (title: string, cell: SafetyCell) => {
       const score = landingSafety({ hazard: cell.hazard, sun: cell.sunlight, shadow: cell.shadow, rad: cell.radiation });
-      const heading = score == null ? title : `${title}: ${score.toFixed(0)}% safe with your priorities`;
+      const heading = score == null ? title : `${title}: ${score.toFixed(0)}% safe`;
       return `<div><h3>${esc(heading)}</h3><div class="twin-parts">${factorRows(cell)}</div><ul>${cell.dangers.map((line) => `<li>${esc(line)}</li>`).join("")}</ul><p class="note">${esc(cell.radiation_note)}</p></div>`;
     };
     box.innerHTML = card(match.a.body, left) + card(match.b.body, right);
-    showHighRisk(highRisks({ hazard: right.hazard, sun: right.sunlight, shadow: right.shadow, rad: right.radiation }));
   } catch {
     if (token === twinToken) box.innerHTML = "";
   }
@@ -657,8 +677,7 @@ function openCard(ev: MouseEvent, site: Site, match: Match | null) {
     const levels = { hazard: cell.hazard, sun: cell.sunlight, shadow: cell.shadow, rad: cell.radiation };
     const score = landingSafety(levels);
     const risks = highRiskSentence(highRisks(levels));
-    $("#spotSafety").textContent = `${score == null ? "" : `${score.toFixed(0)}% safe with your priorities. `}${risks}`.trim();
-    showHighRisk(highRisks(levels));
+    $("#spotSafety").textContent = `${score == null ? "" : `${score.toFixed(0)}% safe. `}${risks}`.trim();
   }).catch(() => undefined);
   void placeFor(bodyKey(site.body), site.lat, site.lon).then((found) => {
     if (token !== cardToken) return;
@@ -806,14 +825,23 @@ function showResults(matches: Match[], origin: Site | null) {
       showBreakdown(m);
       showTwin(m);
     };
-    tr.addEventListener("click", activate);
+    tr.addEventListener("click", (ev) => {
+      activate();
+      if (ev.isTrusted) void showPlaceFactors(m.b.body, m.b.lat, m.b.lon);
+    });
     tr.addEventListener("mouseenter", (ev) => { void openCard(ev, m.b, m); });
     tr.addEventListener("mousemove", (ev) => moveCard(ev));
     tr.addEventListener("mouseleave", () => hideCard());
     const points = origin ? [m.b] : [m.a, m.b];
     groups.forEach((markers, index) => markers.forEach((mk) => {
       watchSpot(mk, points[index] ?? m.b, m);
-      mk.addEventListener("click", (e) => { e.stopPropagation(); activate(); tr.scrollIntoView({ block: "nearest" }); });
+      mk.addEventListener("click", (e) => {
+        e.stopPropagation();
+        activate();
+        const site = points[index] ?? m.b;
+        void showPlaceFactors(site.body, site.lat, site.lon);
+        tr.scrollIntoView({ block: "nearest" });
+      });
     }));
     tbody.appendChild(tr);
   }
@@ -892,9 +920,8 @@ function wireMap(slot: string) {
         const safety = h.safety;
         const levels = safety ? { hazard: safety.hazard, sun: safety.sunlight, shadow: safety.shadow, rad: safety.radiation } : null;
         const flags = levels ? highRisks(levels) : [];
-        showHighRisk(flags);
         const score = levels ? landingSafety(levels) : null;
-        const scoreText = score == null ? "" : ` Landing safety ${score.toFixed(0)}% with your priorities.`;
+        const scoreText = score == null ? "" : ` Landing safety ${score.toFixed(0)}%.`;
         const risks = flags.length ? ` ${highRiskSentence(flags)}` : "";
         $(`#hover-${slot}`).textContent = `${fmtLL(lat, lon)}: ${h.surface}.${scoreText}${risks}`;
       } catch { /* hover is best-effort */ }
@@ -979,7 +1006,9 @@ function wireMap(slot: string) {
     const body = slots()[slot];
     const point = body ? toLatLon(body, ev, pressed) : null;
     pressed = null;
-    if (!point || (earthMode() && body === "earth")) return;
+    if (!point) return;
+    void showPlaceFactors(body, point.lat, point.lon);
+    if (earthMode() && body === "earth") return;
     void runQuery(body, point.lat.toFixed(3), point.lon.toFixed(3));
   });
 }
@@ -1051,7 +1080,10 @@ function renderPair() {
       const btn = document.createElement("button");
       btn.textContent = LANDMARK_LABELS[`${key},${lm.kind}`] || lm.name;
       btn.title = `${lm.name}: ${fmtM(lm.elevation_m)}`;
-      btn.addEventListener("click", () => void runQuery(key, lm.lat, lm.lon, lm.name));
+      btn.addEventListener("click", () => {
+        void showPlaceFactors(key, lm.lat, lm.lon);
+        void runQuery(key, lm.lat, lm.lon, lm.name);
+      });
       $("#lmButtons").appendChild(btn);
     }
   }
@@ -1223,6 +1255,7 @@ function replay(row: SearchRow) {
       if (row.body_b) $<HTMLSelectElement>("#bodyB").value = row.body_b;
     }
     renderPair();
+    void showPlaceFactors(row.body_a, row.lat, row.lon);
     void runQuery(row.body_a, row.lat, row.lon);
     return;
   }
@@ -1376,33 +1409,6 @@ async function init() {
   $<HTMLSelectElement>("#bodyA").value = "earth";
   $<HTMLSelectElement>("#bodyB").value = "moon";
   wireMap("A"); wireMap("B"); wireMap("C");
-  const writePriority = () => {
-    const weights = priorities();
-    $("#priHazardOut").textContent = String(weights.hazard);
-    $("#priSunOut").textContent = String(weights.sun);
-    $("#priShadowOut").textContent = String(weights.shadow);
-    $("#priRadOut").textContent = String(weights.rad);
-  };
-  document.querySelectorAll<HTMLInputElement>("#safetyBar input").forEach((input) => {
-    input.addEventListener("input", () => {
-      writePriority();
-      schedulePaint();
-      refreshRankSafety();
-    });
-  });
-  document.querySelectorAll<HTMLButtonElement>("#safetyBar button").forEach((button) => {
-    button.addEventListener("click", () => {
-      const preset = PRESETS[button.dataset.preset || ""];
-      if (!preset) return;
-      $<HTMLInputElement>("#priHazard").value = String(preset.hazard);
-      $<HTMLInputElement>("#priSun").value = String(preset.sun);
-      $<HTMLInputElement>("#priShadow").value = String(preset.shadow);
-      $<HTMLInputElement>("#priRad").value = String(preset.rad);
-      writePriority();
-      schedulePaint();
-      refreshRankSafety();
-    });
-  });
   renderPair();
   renderValidation();
   void loadSearches();

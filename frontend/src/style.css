@@ -59,7 +59,8 @@
   .twin-safety { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
   .twin-safety h3 { margin: 0 0 4px; font-size: 14px; }
   .twin-safety li { margin: 0 0 4px; }
-  #safetyBar input[type="range"] { width: 88px; padding: 0; accent-color: var(--ok); }
+  #safetyBar input[type="range"] { width: 88px; padding: 0; accent-color: var(--ok); pointer-events: none; }
+  #safetyBar input[type="range"]:disabled { opacity: 1; }
   #safetyBar output { min-width: 1.6em; color: var(--text); }
   .risk, .bad { color: var(--hi); font-weight: 700; }
   .twin .role { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
