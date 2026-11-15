@@ -209,7 +209,7 @@ function highRisks(cell: { hazard: number; sun: number; shadow: number; rad: num
   if (cell.hazard >= 0.6) flags.push("hazard");
   if (cell.sun < 0.25) flags.push("sun");
   if (cell.shadow >= 0.55) flags.push("shadow");
-  if (cell.rad >= 0.75) flags.push("rad");
+  if (cell.rad >= 0.92) flags.push("rad");
   return flags;
 }
 
@@ -249,7 +249,7 @@ function loadSafety(body: string) {
   let pending = safetyGrids.get(body);
   if (!pending) {
     pending = (async () => {
-      const img = await loadMap(`/api/safety/${body}.png?v=1`);
+      const img = await loadMap(`/api/safety/${body}.png?v=2`);
       const canvas = document.createElement("canvas");
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;

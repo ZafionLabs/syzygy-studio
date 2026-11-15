@@ -81,8 +81,11 @@ def build_safety(hm: Heightmap) -> SafetyGrid:
     mean_sq = _wrap_mean(elev * elev, window)
     roughness = np.sqrt(np.clip(mean_sq - mean * mean, 0.0, None)).astype(np.float32)
 
+    # A full hazard from roughness is rare ground, not a normal cratered surface.
+    # The Moon's 75 km relief is naturally about a kilometre, so its scale is wider.
+    rough_scale = {"Earth": 800.0, "Moon": 3000.0, "Mars": 1200.0}.get(hm.body.name, 800.0)
     slope_bad = np.clip(slope / 18.0, 0.0, 1.0)
-    rough_bad = np.clip(roughness / 400.0, 0.0, 1.0)
+    rough_bad = np.clip(roughness / rough_scale, 0.0, 1.0)
     hazard = np.maximum(slope_bad, 0.85 * rough_bad)
     water = np.zeros(hm.shape, dtype=bool)
     if hm.body.name == "Earth":
@@ -157,7 +160,7 @@ def high_risk(hazard: float, sunlight: float, shadow: float, radiation: float, w
         flags.append("sunlight")
     if shadow >= 0.55:
         flags.append("shadow")
-    if radiation >= 0.75:
+    if radiation >= 0.92:
         flags.append("radiation")
     return flags
 
