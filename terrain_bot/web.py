@@ -21,7 +21,7 @@ from .updates import active_updates, prepare_map
 from .features import compute_features
 from .explain import describe_surface, explain_query, explain_top, feature_label, feature_unit
 from .heightmap import Heightmap, heightmap_from_dem
-from .ground import ground_grid, ground_png
+from .ground import SPAN_KM, ground_grid, ground_png
 from .layers import catalog, compare_maps, layer_png
 from .safety import FACTORS, build_safety, describe_cell, encode_png
 from .matcher import MODES, SURFACES, Match, MatchConfig, SitePoint, TerrainMatcher
@@ -372,13 +372,13 @@ class TerrainApp:
             pass
         return payload
 
-    def ground(self, body: str, lat: float, lon: float, km: float = 720, session_id: str = "") -> dict:
+    def ground(self, body: str, lat: float, lon: float, km: float = SPAN_KM, session_id: str = "") -> dict:
         hm = self._map_hm(body, "dem", session_id)
         if hm is None:
             raise ValueError(f"unknown body {body!r}")
         return ground_grid(hm, lat, lon, km)
 
-    def ground_image(self, body: str, lat: float, lon: float, layer: str, km: float = 720, session_id: str = "") -> bytes:
+    def ground_image(self, body: str, lat: float, lon: float, layer: str, km: float = SPAN_KM, session_id: str = "") -> bytes:
         hm = self._map_hm(body, "dem", session_id)
         if hm is None:
             raise ValueError(f"unknown body {body!r}")
@@ -509,9 +509,9 @@ def make_handler(app: TerrainApp):
                 elif path == "/api/place":
                     self._json(200, app.place(q["body"], float(q["lat"]), float(q["lon"]), source, self._session()))
                 elif path == "/api/ground":
-                    self._json(200, app.ground(q["body"], float(q["lat"]), float(q["lon"]), float(q.get("km", 720)), self._session()))
+                    self._json(200, app.ground(q["body"], float(q["lat"]), float(q["lon"]), float(q.get("km", SPAN_KM)), self._session()))
                 elif path == "/api/ground.png":
-                    image = app.ground_image(q["body"], float(q["lat"]), float(q["lon"]), q.get("layer", "elevation"), float(q.get("km", 720)), self._session())
+                    image = app.ground_image(q["body"], float(q["lat"]), float(q["lon"]), q.get("layer", "elevation"), float(q.get("km", SPAN_KM)), self._session())
                     self._send(200, image, "image/png")
                 elif path == "/api/place-image":
                     img = app.place_image(q["body"], float(q["lat"]), float(q["lon"]), float(q.get("km", 150)))

@@ -10,7 +10,7 @@ from PIL import Image
 
 from .heightmap import Heightmap
 
-SPAN_KM = 720.0
+SPAN_KM = 100.0
 SAMPLES = 96
 
 
@@ -71,6 +71,8 @@ def ground_grid(hm: Heightmap, lat: float, lon: float, span_km: float = SPAN_KM,
         "north_km": north_km,
         "east_km": east_km,
         "radius_km": hm.body.mean_radius_km,
+        "low_m": hm.body.min_elevation_m,
+        "high_m": hm.body.max_elevation_m,
         "elevation_m": elevation.ravel().tolist(),
     }
 

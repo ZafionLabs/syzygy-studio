@@ -10,13 +10,16 @@ type Ground = {
   radius_km: number;
   lat: number;
   lon: number;
+  low_m: number;
+  high_m: number;
   elevation_m: number[];
 };
 
-const EXAG = 10;
-const EYE_KM = 0.0018 * EXAG;
-const WALK_KM_S = 18;
-const SPRINT_KM_S = 55;
+type LayerFact = { title: string; low: string; high: string; ramp: string };
+
+const DRIVE_KM_S = 5;
+const SPRINT_KM_S = 16;
+const CLEARANCE_KM = 0.004;
 
 let spots: { a: WorldSpot; b: WorldSpot } | null = null;
 let side: "a" | "b" = "b";
@@ -28,11 +31,13 @@ let renderer: THREE.WebGLRenderer | null = null;
 let scene: THREE.Scene | null = null;
 let camera: THREE.PerspectiveCamera | null = null;
 let mesh: THREE.Mesh | null = null;
+let rover: THREE.Group | null = null;
 let ground: Ground | null = null;
 let heights: Float32Array | null = null;
+let facts: Record<string, Record<string, LayerFact>> = {};
 let raf = 0;
 let yaw = 0;
-let pitch = -0.22;
+let orbit = 0.42;
 const place = { north: 0, east: 0 };
 const keys = new Set<string>();
 let wired = false;
@@ -65,11 +70,13 @@ function ensureRenderer() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x070b12);
   scene.fog = new THREE.Fog(0x070b12, 80, 420);
-  camera = new THREE.PerspectiveCamera(68, 1, 0.01, 4000);
+  camera = new THREE.PerspectiveCamera(62, 1, 0.0004, 400);
   scene.add(new THREE.AmbientLight(0xffffff, 0.72));
   const sun = new THREE.DirectionalLight(0xfff4e0, 1.8);
   sun.position.set(80, 140, 40);
   scene.add(sun);
+  rover = makeRover();
+  scene.add(rover);
   const resize = () => {
     const width = canvas.clientWidth || 800;
     const height = canvas.clientHeight || 460;
@@ -83,10 +90,10 @@ function ensureRenderer() {
   resize();
 }
 
-function surface(northKm: number, eastKm: number) {
+function heightMetres(northKm: number, eastKm: number) {
   const field = ground;
   const samples = heights;
-  if (!field || !samples) return { x: eastKm, y: EYE_KM, z: -northKm };
+  if (!field || !samples) return 0;
   const col = (eastKm / field.east_km + 0.5) * (field.cols - 1);
   const row = (0.5 - northKm / field.north_km) * (field.rows - 1);
   const c0 = Math.max(0, Math.min(field.cols - 2, Math.floor(col)));
@@ -94,9 +101,45 @@ function surface(northKm: number, eastKm: number) {
   const tc = col - c0;
   const tr = row - r0;
   const at = (r: number, c: number) => samples[r * field.cols + c] ?? 0;
-  const metres = at(r0, c0) * (1 - tr) * (1 - tc) + at(r0, c0 + 1) * (1 - tr) * tc + at(r0 + 1, c0) * tr * (1 - tc) + at(r0 + 1, c0 + 1) * tr * tc;
-  const drop = (northKm * northKm + eastKm * eastKm) / (2 * field.radius_km);
-  return { x: eastKm, y: (metres / 1000) * EXAG - drop, z: -northKm };
+  return at(r0, c0) * (1 - tr) * (1 - tc) + at(r0, c0 + 1) * (1 - tr) * tc + at(r0 + 1, c0) * tr * (1 - tc) + at(r0 + 1, c0 + 1) * tr * tc;
+}
+
+function surface(northKm: number, eastKm: number) {
+  const field = ground;
+  const metres = heightMetres(northKm, eastKm);
+  const drop = field ? (northKm * northKm + eastKm * eastKm) / (2 * field.radius_km) : 0;
+  return { x: eastKm, y: metres / 1000 - drop, z: -northKm };
+}
+
+function makeRover() {
+  const group = new THREE.Group();
+  const hull = new THREE.Mesh(
+    new THREE.BoxGeometry(0.0022, 0.0009, 0.0032),
+    new THREE.MeshLambertMaterial({ color: 0xd7dde6 }),
+  );
+  hull.position.y = 0.00105;
+  group.add(hull);
+  const deck = new THREE.Mesh(
+    new THREE.BoxGeometry(0.0014, 0.00045, 0.0012),
+    new THREE.MeshLambertMaterial({ color: 0xc4a46a }),
+  );
+  deck.position.set(0, 0.0017, -0.0002);
+  group.add(deck);
+  const mast = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.0001, 0.0001, 0.0015, 8),
+    new THREE.MeshLambertMaterial({ color: 0x9aa6b5 }),
+  );
+  mast.position.set(0, 0.0023, -0.0007);
+  group.add(mast);
+  const wheel = new THREE.CylinderGeometry(0.00042, 0.00042, 0.00032, 10);
+  const rubber = new THREE.MeshLambertMaterial({ color: 0x22262e });
+  for (const [x, z] of [[-0.00105, -0.00105], [0.00105, -0.00105], [-0.00105, 0.00105], [0.00105, 0.00105]] as const) {
+    const meshWheel = new THREE.Mesh(wheel, rubber);
+    meshWheel.rotation.z = Math.PI / 2;
+    meshWheel.position.set(x, 0.00042, z);
+    group.add(meshWheel);
+  }
+  return group;
 }
 
 function here() {
@@ -108,19 +151,24 @@ function here() {
 }
 
 function applyCamera() {
-  if (!camera) return;
+  if (!camera || !rover) return;
   const foot = surface(place.north, place.east);
-  camera.position.set(foot.x, foot.y + EYE_KM, foot.z);
-  const radius = ground?.radius_km ?? 6371;
-  const east = new THREE.Vector3(1, -place.east / radius, 0).normalize();
-  const north = new THREE.Vector3(0, -place.north / radius, -1).normalize();
-  const up = new THREE.Vector3(0, 1, 0);
-  const look = new THREE.Vector3()
-    .addScaledVector(east, Math.sin(yaw) * Math.cos(pitch))
-    .addScaledVector(north, Math.cos(yaw) * Math.cos(pitch))
-    .addScaledVector(up, Math.sin(pitch));
-  camera.up.copy(up);
-  camera.lookAt(camera.position.clone().add(look));
+  rover.position.set(foot.x, foot.y, foot.z);
+  rover.rotation.y = -yaw;
+  const faceN = Math.cos(yaw);
+  const faceE = Math.sin(yaw);
+  const back = 0.028 + orbit * 0.02;
+  const camN = place.north - faceN * back;
+  const camE = place.east - faceE * back;
+  let camY = foot.y + 0.008 + orbit * 0.012;
+  for (let stepT = 0.25; stepT <= 1; stepT += 0.25) {
+    const groundY = surface(place.north + (camN - place.north) * stepT, place.east + (camE - place.east) * stepT).y;
+    camY = Math.max(camY, groundY + CLEARANCE_KM);
+  }
+  const cam = surface(camN, camE);
+  camera.position.set(cam.x, camY, cam.z);
+  camera.up.set(0, 1, 0);
+  camera.lookAt(foot.x, foot.y + 0.0015, foot.z);
 }
 
 function step(dt: number) {
@@ -132,7 +180,7 @@ function step(dt: number) {
   if (keys.has("d") || keys.has("arrowright")) strafe += 1;
   if (keys.has("a") || keys.has("arrowleft")) strafe -= 1;
   if (!forward && !strafe) return;
-  const speed = (keys.has("shift") ? SPRINT_KM_S : WALK_KM_S) * dt / (Math.hypot(forward, strafe) || 1);
+  const speed = (keys.has("shift") ? SPRINT_KM_S : DRIVE_KM_S) * dt / (Math.hypot(forward, strafe) || 1);
   const faceN = Math.cos(yaw);
   const faceE = Math.sin(yaw);
   place.north += (faceN * forward - faceE * strafe) * speed;
@@ -155,6 +203,7 @@ function frame() {
   const where = $<HTMLElement>("#worldWhere");
   const spot = currentSpot();
   if (spot && ground) where.textContent = `${spot.body} · ${here()}`;
+  if (ground) $<HTMLElement>("#legendHere").textContent = `Ground ${fmtM(heightMetres(place.north, place.east))}`;
   renderer?.render(scene!, camera!);
 }
 
@@ -191,7 +240,7 @@ function buildMesh(data: Ground, texture: THREE.Texture) {
       const east = (col / (cols - 1) - 0.5) * data.east_km;
       const drop = (north * north + east * east) / (2 * data.radius_km);
       positions[i * 3] = east;
-      positions[i * 3 + 1] = (data.elevation_m[i] / 1000) * EXAG - drop;
+      positions[i * 3 + 1] = data.elevation_m[i] / 1000 - drop;
       positions[i * 3 + 2] = -north;
       uvs[i * 2] = col / (cols - 1);
       uvs[i * 2 + 1] = 1 - row / (rows - 1);
@@ -212,8 +261,8 @@ function buildMesh(data: Ground, texture: THREE.Texture) {
   mesh = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ map: texture }));
   scene.add(mesh);
   if (scene.fog instanceof THREE.Fog) {
-    scene.fog.near = data.north_km * 0.18;
-    scene.fog.far = data.north_km * 0.72;
+    scene.fog.near = data.north_km * 0.35;
+    scene.fog.far = data.north_km * 0.62;
   }
 }
 
@@ -260,9 +309,10 @@ async function showSpot(reset: boolean) {
       place.north = 0;
       place.east = 0;
       yaw = 0;
-      pitch = -0.22;
+      orbit = 0.42;
     }
-    hint.textContent = "Click the world, then look with the mouse. W A S D walks. Shift is faster. Esc lets the mouse go. Heights are drawn taller so the shape shows, and the colors are the map you pick.";
+    paintLegend();
+    hint.textContent = "Click the view, then turn with the mouse. W A S D drives the rover over the real ground. Shift is faster. Esc lets the mouse go.";
     $<HTMLElement>("#worldWhere").textContent = `${spot.body} · ${fmtLL(spot.lat, spot.lon)}`;
     loop(true);
     renderer?.setSize($<HTMLCanvasElement>("#worldCanvas").clientWidth, $<HTMLCanvasElement>("#worldCanvas").clientHeight, false);
@@ -282,6 +332,7 @@ async function swapColor() {
   material.map?.dispose();
   material.map = texture;
   material.needsUpdate = true;
+  paintLegend();
 }
 
 function wire() {
@@ -309,8 +360,8 @@ function wire() {
   document.addEventListener("mousemove", (event) => {
     if (document.pointerLockElement !== canvas) return;
     yaw -= event.movementX * 0.0022;
-    pitch -= event.movementY * 0.0022;
-    pitch = Math.max(-1.15, Math.min(1.05, pitch));
+    orbit -= event.movementY * 0.0016;
+    orbit = Math.max(0.12, Math.min(1.15, orbit));
   });
   const watch = (event: KeyboardEvent, down: boolean) => {
     const key = event.key.toLowerCase();
@@ -328,10 +379,54 @@ function wire() {
   });
 }
 
+function fmtM(metres: number) {
+  const sign = metres < 0 ? "−" : "";
+  return `${sign}${Math.abs(Math.round(metres)).toLocaleString()} m`;
+}
+
+function paintLegend() {
+  const box = $<HTMLElement>("#worldLegend");
+  const spot = currentSpot();
+  if (!spot || !ground) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  const key = bodyKey(spot.body);
+  const fact = facts[key]?.[layer];
+  const bar = $<HTMLElement>("#legendBar");
+  const low = $<HTMLElement>("#legendLow");
+  const high = $<HTMLElement>("#legendHigh");
+  if (layer === "elevation") {
+    $<HTMLElement>("#legendTitle").textContent = "Elevation";
+    bar.hidden = false;
+    bar.className = `legend-elev-${key}`;
+    low.textContent = fmtM(ground.low_m);
+    high.textContent = fmtM(ground.high_m);
+  } else if (fact && fact.ramp !== "photo" && fact.low !== fact.high) {
+    $<HTMLElement>("#legendTitle").textContent = fact.title;
+    bar.hidden = false;
+    bar.className = fact.ramp === "rain" ? "legend-rain" : "legend-heat";
+    low.textContent = fact.low;
+    high.textContent = fact.high;
+  } else {
+    $<HTMLElement>("#legendTitle").textContent = fact?.title || layer;
+    bar.hidden = true;
+    bar.className = "";
+    low.textContent = fact?.low === fact?.high ? "" : (fact?.low || "");
+    high.textContent = fact?.low === fact?.high ? "" : (fact?.high || "");
+  }
+  $<HTMLElement>("#legendHere").textContent = `Ground ${fmtM(heightMetres(place.north, place.east))}`;
+}
+
 async function fillLayers() {
   const box = $<HTMLElement>("#worldLayers");
   if (box.childElementCount) return;
-  const catalog = await fetch("/api/layers").then((response) => response.json() as Promise<{ layers: { id: string; label: string }[] }>);
+  const catalog = await fetch("/api/layers").then((response) => response.json() as Promise<{
+    layers: { id: string; label: string }[];
+    bodies: Record<string, Record<string, LayerFact>>;
+  }>);
+  facts = catalog.bodies;
   for (const item of catalog.layers) {
     const button = document.createElement("button");
     button.type = "button";
