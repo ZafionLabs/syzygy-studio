@@ -160,7 +160,7 @@ const fmtNum = (v: number | null | undefined, d = 1) => (v == null ? "n/a" : v.t
 const fmtLL = (lat: number, lon: number) => `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"} ${Math.abs(lon).toFixed(1)}°${lon >= 0 ? "E" : "W"}`;
 const fmtCoords = (lat: number, lon: number) => `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? "N" : "S"}, ${Math.abs(lon).toFixed(3)}°${lon >= 0 ? "E" : "W"}`;
 const esc = (s: string) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] ?? c);
-const source = () => val("#source");
+const source = () => "dem";
 const bodies = () => {
   if (!INFO) throw new Error("not ready");
   return INFO.sources[source()].bodies;
@@ -893,8 +893,8 @@ async function runTop() {
   try {
     const res = await api<TopResult>(`/api/top?n=${k}&a=${A}&b=${B}&${params()}`);
     $("#status").textContent = earthMode()
-      ? `Top ${res.matches.length} closest ${bodies()[A].name} places on Earth (${INFO?.sources[source()].label}). Click a row to see why.`
-      : `Top ${res.matches.length} most similar ${bodies()[A].name}/${bodies()[B].name} locations (${INFO?.sources[source()].label}). Click a row to see why.`;
+      ? `Top ${res.matches.length} closest ${bodies()[A].name} places on Earth. Click a row to see why.`
+      : `Top ${res.matches.length} most similar ${bodies()[A].name}/${bodies()[B].name} locations. Click a row to see why.`;
     showResults(res.matches, null);
     showSteps(res.steps);
     void loadSearches();
@@ -1244,7 +1244,6 @@ async function loadSearches() {
 
 function replay(row: SearchRow) {
   if (!INFO) return;
-  $<HTMLSelectElement>("#source").value = row.source || INFO.default_source;
   $<HTMLSelectElement>("#surface").value = row.surface || "any";
   fillBodySelects();
   if (row.kind === "query" && row.body_a && row.lat != null && row.lon != null) {
@@ -1319,9 +1318,6 @@ async function init() {
     };
     writeMixText();
   }).catch(() => { /* names stay off if the file is missing */ });
-  const sel = $<HTMLSelectElement>("#source");
-  for (const [key, s] of Object.entries(INFO.sources)) sel.add(new Option(s.label, key));
-  sel.value = INFO.default_source;
   fillBodySelects();
   const mapKinds: [string, string][] = [
     ["elevation", "Elevation"],
@@ -1468,7 +1464,6 @@ async function init() {
       else void runTop();
     });
   });
-  sel.addEventListener("change", () => { fillBodySelects(); renderPair(); void rerun(); });
   for (const id of ["#bodyA", "#bodyB"]) {
     $(id).addEventListener("change", (ev) => {
       const other = id === "#bodyA" ? "#bodyB" : "#bodyA";

@@ -10,9 +10,7 @@
 <header>
   <h1>Terrain Bot: Earth, Moon and Mars look-alike terrain</h1>
   <p>Find closest match by choosing the Moon or Mars, then clicking that map. The chosen map and Earth sit side by side. Compare two bodies by clicking either map. Earth's underwater sea floor counts too.
-     By default it uses real measured elevations: NOAA ETOPO1 for Earth (including the ocean floor), NASA LRO LOLA for the Moon, and NASA MGS MOLA for Mars.
-     You can switch to your images, scaled from each body's real lowest point to its highest: Challenger Deep (−10,935 m) to Everest (+8,849 m) on Earth, Point Trieste (−9,129 m) to the Selenean summit (+10,786 m) on the Moon, and Badwater crater in Hellas (−8,201 m) to Olympus Mons (+21,229 m) on Mars.
-     Or use the images with a brightness curve fitted to the real data.
+     It uses real measured elevations: NOAA ETOPO1 for Earth (including the ocean floor), NASA LRO LOLA for the Moon, and NASA MGS MOLA for Mars.
      The map buttons add temperature, ice and water, geology, weather, light, and radiation. Turn on more than one at a time. Each selected map is drawn on its own, one under the other. Open Place maps to drop a newer file on a map. The bot uses that file for this browser visit only. Hover a selected point or a found match to see its name, its coordinates, a picture of the spot, the nearest landmark and how far away it is, and how far the point is from the center of the nearest crater. You can type coordinates instead of clicking a map. The match is shown under the maps, with the old place cards: the name, the description, and pictures of both places, plus the match percentage. Press a place and the sliders move to that spot’s hazards, sunlight, shadows, and radiation. High risk shows beside a slider when that spot is dangerous for it. A click still searches by elevation.</p>
 </header>
 
@@ -31,7 +29,6 @@
   <label id="earthFromLabel" hidden>Top matches from
     <select id="earthFrom"></select>
   </label>
-  <label>Data <select id="source"></select></label>
   <label>Earth points
     <select id="surface">
       <option value="any">land or underwater</option>
