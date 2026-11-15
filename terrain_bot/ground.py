@@ -59,7 +59,7 @@ def ground_grid(hm: Heightmap, lat: float, lon: float, span_km: float = SPAN_KM,
     """Elevation samples around one place, north at the first row and west at the first column."""
     lat = float(np.clip(lat, -90.0, 90.0))
     lon = ((float(lon) + 180.0) % 360.0) - 180.0
-    span_km = float(np.clip(span_km, 40.0, 2000.0))
+    span_km = float(np.clip(span_km, 8.0, 2000.0))
     samples = int(np.clip(samples, 8, 160))
     half_north, half_east, north_km, east_km = _window(hm.body.mean_radius_km, lat, span_km)
     lats = np.linspace(lat + half_north, lat - half_north, samples)
@@ -151,13 +151,23 @@ def satellite_png(
     radius_km: float,
     span_km: float = SPAN_KM,
     fetch=None,
+    pixels: int = 512,
 ) -> bytes | None:
-    """Google Maps satellite photo of the same window as :func:`ground_grid`."""
+    """Google Earth satellite photo of the same window as :func:`ground_grid`."""
     lat = float(np.clip(lat, -90.0, 90.0))
     lon = ((float(lon) + 180.0) % 360.0) - 180.0
     half_north, half_east, _, _ = _window(radius_km, lat, span_km)
-    zoom = _zoom(half_east)
-    size = 512
+    size = int(np.clip(pixels, 128, 2048))
+    zoom = _zoom(half_east, size)
+    fetch = fetch or _google_tile
+    # Open ocean has no picture at the closest zoom, so step back until a tile exists.
+    for level in range(zoom, 1, -1):
+        cx, cy = _mercator(np.array([lat]), np.array([lon]), level)
+        tile_x = int(cx[0]) // TILE % (1 << level)
+        tile_y = int(cy[0]) // TILE
+        if fetch(level, tile_x, tile_y) is not None:
+            zoom = level
+            break
     rows = np.linspace(lat + half_north, lat - half_north, size)
     cols = np.linspace(lon - half_east, lon + half_east, size)
     lon_grid, lat_grid = np.meshgrid(cols, rows)
@@ -167,7 +177,6 @@ def satellite_png(
     x1 = int(np.ceil(xs.max()))
     y1 = int(np.ceil(ys.max()))
     tiles_x = 1 << zoom
-    fetch = fetch or _google_tile
     wanted = []
     for ty in range(y0 // TILE, y1 // TILE + 1):
         if ty < 0 or ty >= tiles_x:

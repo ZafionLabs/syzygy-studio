@@ -21,7 +21,7 @@ from .updates import active_updates, prepare_map
 from .features import compute_features
 from .explain import describe_surface, explain_query, explain_top, feature_label, feature_unit
 from .heightmap import Heightmap, heightmap_from_dem
-from .ground import SPAN_KM, earth_globe_png, ground_grid, ground_png, satellite_png
+from .ground import SPAN_KM, ground_grid, ground_png, satellite_png
 from .layers import catalog, compare_maps, layer_png
 from .safety import FACTORS, build_safety, describe_cell, encode_png
 from .matcher import MODES, SURFACES, Match, MatchConfig, SitePoint, TerrainMatcher
@@ -372,18 +372,20 @@ class TerrainApp:
             pass
         return payload
 
-    def ground(self, body: str, lat: float, lon: float, km: float = SPAN_KM, session_id: str = "") -> dict:
+    def ground(self, body: str, lat: float, lon: float, km: float = SPAN_KM, session_id: str = "", samples: int | None = None) -> dict:
         hm = self._map_hm(body, "dem", session_id)
         if hm is None:
             raise ValueError(f"unknown body {body!r}")
+        if samples:
+            return ground_grid(hm, lat, lon, km, samples)
         return ground_grid(hm, lat, lon, km)
 
-    def ground_image(self, body: str, lat: float, lon: float, layer: str, km: float = SPAN_KM, session_id: str = "") -> bytes:
+    def ground_image(self, body: str, lat: float, lon: float, layer: str, km: float = SPAN_KM, session_id: str = "", pixels: int = 512) -> bytes:
         hm = self._map_hm(body, "dem", session_id)
         if hm is None:
             raise ValueError(f"unknown body {body!r}")
         if body.lower() == "earth" and layer == "elevation":
-            photo = satellite_png(lat, lon, hm.body.mean_radius_km, km)
+            photo = satellite_png(lat, lon, hm.body.mean_radius_km, km, pixels=pixels)
             if photo:
                 return photo
         raw = self.map_png("dem", body, session_id) if layer == "elevation" else self.layer_bytes(body, layer, session_id)
@@ -513,15 +515,10 @@ def make_handler(app: TerrainApp):
                 elif path == "/api/place":
                     self._json(200, app.place(q["body"], float(q["lat"]), float(q["lon"]), source, self._session()))
                 elif path == "/api/ground":
-                    self._json(200, app.ground(q["body"], float(q["lat"]), float(q["lon"]), float(q.get("km", SPAN_KM)), self._session()))
-                elif path == "/api/earth-globe.png":
-                    photo = earth_globe_png()
-                    if not photo:
-                        self._json(502, {"error": "Google Earth imagery is unavailable."})
-                    else:
-                        self._send(200, photo, "image/png", cache=True)
+                    samples = int(q["samples"]) if q.get("samples") else None
+                    self._json(200, app.ground(q["body"], float(q["lat"]), float(q["lon"]), float(q.get("km", SPAN_KM)), self._session(), samples))
                 elif path == "/api/ground.png":
-                    image = app.ground_image(q["body"], float(q["lat"]), float(q["lon"]), q.get("layer", "elevation"), float(q.get("km", SPAN_KM)), self._session())
+                    image = app.ground_image(q["body"], float(q["lat"]), float(q["lon"]), q.get("layer", "elevation"), float(q.get("km", SPAN_KM)), self._session(), int(q.get("px", 512)))
                     self._send(200, image, "image/png")
                 elif path == "/api/place-image":
                     img = app.place_image(q["body"], float(q["lat"]), float(q["lon"]), float(q.get("km", 150)))

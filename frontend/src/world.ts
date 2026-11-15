@@ -43,11 +43,6 @@ let facts: Record<string, Record<string, LayerFact>> = {};
 let raf = 0;
 let yaw = 0;
 let orbit = 0.42;
-let globe = false;
-let shell: THREE.Mesh | null = null;
-let viewLat = 0;
-let viewLon = 0;
-let altitudeKm = 1600;
 const place = { north: 0, east: 0 };
 const keys = new Set<string>();
 let wired = false;
@@ -251,18 +246,7 @@ function applyAtmosphere(bodyName: string) {
   material.map?.dispose();
   material.map = skyTexture(body);
   material.needsUpdate = true;
-  sky.visible = !globe;
-  if (globe) {
-    scene.fog = null;
-    scene.background = new THREE.Color(0x000000);
-    stars.visible = true;
-    stars.position.set(0, 0, 0);
-    sunLight.color.set(0xfff6e8);
-    sunLight.intensity = 1.4;
-    ambient.color.set(0xffffff);
-    ambient.intensity = 0.85;
-    return;
-  }
+  sky.visible = true;
   if (body === "moon") {
     scene.fog = null;
     scene.background = new THREE.Color(0x000000);
@@ -281,7 +265,9 @@ function applyAtmosphere(bodyName: string) {
     ambient.intensity = 0.58;
   } else {
     scene.background = new THREE.Color(0x6eaddf);
-    scene.fog = new THREE.Fog(0xd7e8f6, span * 0.25, span * 0.72);
+    const near = ground?.body === "earth" ? 4 : span * 0.25;
+    const far = ground?.body === "earth" ? 18 : span * 0.72;
+    scene.fog = new THREE.Fog(0xd7e8f6, near, far);
     stars.visible = false;
     sunLight.color.set(0xfff6e8);
     sunLight.intensity = 1.65;
@@ -292,6 +278,7 @@ function applyAtmosphere(bodyName: string) {
 
 function makeRover() {
   const group = new THREE.Group();
+  // The model is drawn in meters. The world is in kilometers, so this is a real 3 m rover.
   group.scale.setScalar(0.001);
   const deckColor = new THREE.MeshLambertMaterial({ map: panelTexture("#9a7048", "#5c4030"), color: 0xffffff });
   const white = new THREE.MeshLambertMaterial({ map: panelTexture("#e6e1d6", "#b7b1a6"), color: 0xffffff });
@@ -338,125 +325,6 @@ function here() {
   return fmtLL(lat, lon);
 }
 
-function earthPoint(latDeg: number, lonDeg: number, radius = 1) {
-  const lat = (latDeg * Math.PI) / 180;
-  const phi = ((lonDeg + 180) * Math.PI) / 180;
-  const cosLat = Math.cos(lat);
-  return new THREE.Vector3(-Math.cos(phi) * cosLat * radius, Math.sin(lat) * radius, Math.sin(phi) * cosLat * radius);
-}
-
-function dropShell() {
-  if (!shell || !scene) return;
-  scene.remove(shell);
-  shell.geometry.dispose();
-  (shell.material as THREE.Material).dispose();
-  shell = null;
-}
-
-function globeMaterial(photo: THREE.Texture, overlay: THREE.Texture, mix: number) {
-  return new THREE.ShaderMaterial({
-    uniforms: {
-      topoMap: { value: photo },
-      overlayMap: { value: overlay },
-      overlayMix: { value: mix },
-    },
-    vertexShader: `
-      varying vec2 vUv;
-      varying vec3 vNormal;
-      void main() {
-        vUv = uv;
-        vNormal = normalize(normalMatrix * normal);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform sampler2D topoMap;
-      uniform sampler2D overlayMap;
-      uniform float overlayMix;
-      varying vec2 vUv;
-      varying vec3 vNormal;
-      void main() {
-        vec3 photo = texture2D(topoMap, vUv).rgb;
-        vec3 over = texture2D(overlayMap, vUv).rgb;
-        float light = 0.88 + 0.12 * max(dot(normalize(vNormal), normalize(vec3(0.35, 0.8, 0.25))), 0.0);
-        gl_FragColor = vec4(mix(photo, over, overlayMix * 0.72) * light, 1.0);
-      }
-    `,
-  });
-}
-
-function buildGlobe(photo: THREE.Texture, overlay: THREE.Texture, mix: number) {
-  if (!scene) return;
-  dropShell();
-  if (mesh) {
-    scene.remove(mesh);
-    mesh.geometry.dispose();
-    const previous = mesh.material as THREE.ShaderMaterial;
-    const topoMap = previous.uniforms.topoMap.value as THREE.Texture;
-    const overlayMap = previous.uniforms.overlayMap.value as THREE.Texture;
-    topoMap.dispose();
-    if (overlayMap !== topoMap) overlayMap.dispose();
-    previous.dispose();
-  }
-  globe = true;
-  if (rover) rover.visible = false;
-  mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 64), globeMaterial(photo, overlay, mix));
-  scene.add(mesh);
-  shell = new THREE.Mesh(
-    new THREE.SphereGeometry(1.028, 64, 32),
-    new THREE.ShaderMaterial({
-      transparent: true,
-      side: THREE.BackSide,
-      depthWrite: false,
-      uniforms: { glow: { value: new THREE.Color(0x8ec5ff) } },
-      vertexShader: `
-        varying vec3 vNormal;
-        varying vec3 vWorld;
-        void main() {
-          vNormal = normalize(normalMatrix * normal);
-          vec4 world = modelMatrix * vec4(position, 1.0);
-          vWorld = world.xyz;
-          gl_Position = projectionMatrix * viewMatrix * world;
-        }
-      `,
-      fragmentShader: `
-        varying vec3 vNormal;
-        varying vec3 vWorld;
-        uniform vec3 glow;
-        void main() {
-          vec3 viewDir = normalize(cameraPosition - vWorld);
-          float rim = pow(1.0 - abs(dot(viewDir, normalize(vNormal))), 2.4);
-          gl_FragColor = vec4(glow, rim * 0.9);
-        }
-      `,
-    }),
-  );
-  scene.add(shell);
-  if (camera) {
-    camera.near = 0.00005;
-    camera.far = 40;
-    camera.updateProjectionMatrix();
-  }
-}
-
-function applyGlobeCamera() {
-  if (!camera) return;
-  const target = earthPoint(viewLat, viewLon);
-  const up = target.clone().normalize();
-  const east = new THREE.Vector3(target.z, 0, -target.x).normalize();
-  const north = new THREE.Vector3().crossVectors(up, east).normalize();
-  const tilt = Math.max(0.02, Math.min(1.25, orbit));
-  const back = north.clone().multiplyScalar(-Math.cos(yaw)).add(east.clone().multiplyScalar(-Math.sin(yaw)));
-  const dir = up.clone().multiplyScalar(Math.cos(tilt)).add(back.multiplyScalar(Math.sin(tilt))).normalize();
-  const distance = 1 + altitudeKm / 6371;
-  camera.position.copy(dir.multiplyScalar(distance));
-  camera.up.copy(up);
-  camera.lookAt(target);
-  camera.near = Math.max(0.00004, (altitudeKm / 6371) * 0.04);
-  camera.far = distance + 3;
-  camera.updateProjectionMatrix();
-}
-
 function applyCamera() {
   if (!camera || !rover) return;
   camera.near = 0.0004;
@@ -466,10 +334,11 @@ function applyCamera() {
   rover.rotation.y = -yaw;
   const faceN = Math.cos(yaw);
   const faceE = Math.sin(yaw);
-  const back = 0.014 + orbit * 0.01;
+  const close = ground?.body === "earth";
+  const back = close ? 0.0065 + orbit * 0.003 : 0.014 + orbit * 0.01;
   const camN = place.north - faceN * back;
   const camE = place.east - faceE * back;
-  let camY = foot.y + 0.005 + orbit * 0.007;
+  let camY = foot.y + (close ? 0.0024 + orbit * 0.0012 : 0.005 + orbit * 0.007);
   for (let stepT = 0.25; stepT <= 1; stepT += 0.25) {
     const groundY = surface(place.north + (camN - place.north) * stepT, place.east + (camE - place.east) * stepT).y;
     camY = Math.max(camY, groundY + CLEARANCE_KM);
@@ -477,28 +346,11 @@ function applyCamera() {
   const cam = surface(camN, camE);
   camera.position.set(cam.x, camY, cam.z);
   camera.up.set(0, 1, 0);
-  camera.lookAt(foot.x, foot.y + 0.0013, foot.z);
+  camera.lookAt(foot.x, foot.y + (ground?.body === "earth" ? 0.0015 : 0.0013), foot.z);
   camera.updateProjectionMatrix();
 }
 
 function step(dt: number) {
-  if (globe) {
-    let forward = 0;
-    let strafe = 0;
-    if (keys.has("w") || keys.has("arrowup")) forward += 1;
-    if (keys.has("s") || keys.has("arrowdown")) forward -= 1;
-    if (keys.has("d") || keys.has("arrowright")) strafe += 1;
-    if (keys.has("a") || keys.has("arrowleft")) strafe -= 1;
-    if (!forward && !strafe) return;
-    const speed = altitudeKm * (keys.has("shift") ? 0.55 : 0.22) * dt / (Math.hypot(forward, strafe) || 1);
-    const kmPerDeg = 111.195;
-    const scale = Math.max(0.2, Math.cos((viewLat * Math.PI) / 180));
-    viewLat += (Math.cos(yaw) * forward - Math.sin(yaw) * strafe) * speed / kmPerDeg;
-    viewLon += (Math.sin(yaw) * forward + Math.cos(yaw) * strafe) * speed / (kmPerDeg * scale);
-    viewLat = Math.max(-85, Math.min(85, viewLat));
-    viewLon = ((viewLon + 180) % 360 + 360) % 360 - 180;
-    return;
-  }
   if (!ground) return;
   let forward = 0;
   let strafe = 0;
@@ -507,7 +359,10 @@ function step(dt: number) {
   if (keys.has("d") || keys.has("arrowright")) strafe += 1;
   if (keys.has("a") || keys.has("arrowleft")) strafe -= 1;
   if (!forward && !strafe) return;
-  const speed = (keys.has("shift") ? SPRINT_KM_S : DRIVE_KM_S) * dt / (Math.hypot(forward, strafe) || 1);
+  const pace = ground.body === "earth"
+    ? (keys.has("shift") ? 0.04 : 0.016)
+    : (keys.has("shift") ? SPRINT_KM_S : DRIVE_KM_S);
+  const speed = pace * dt / (Math.hypot(forward, strafe) || 1);
   const faceN = Math.cos(yaw);
   const faceE = Math.sin(yaw);
   place.north += (faceN * forward - faceE * strafe) * speed;
@@ -526,18 +381,15 @@ function frame() {
   const canvas = document.querySelector("#worldCanvas");
   const looking = document.pointerLockElement === canvas;
   if (looking || (canvas instanceof HTMLElement && document.activeElement === canvas)) step(dt);
-  if (globe) applyGlobeCamera();
-  else applyCamera();
+  applyCamera();
   const where = $<HTMLElement>("#worldWhere");
   const spot = currentSpot();
-  if (spot && globe) where.textContent = `${spot.body} · ${fmtLL(viewLat, viewLon)}`;
-  else if (spot && ground) where.textContent = `${spot.body} · ${here()}`;
-  if (camera && !globe) {
+  if (spot && ground) where.textContent = `${spot.body} · ${here()}`;
+  if (camera) {
     sky?.position.copy(camera.position);
     stars?.position.copy(camera.position);
   }
-  if (globe) $<HTMLElement>("#legendHere").textContent = `${Math.round(altitudeKm).toLocaleString()} km up`;
-  else if (ground) $<HTMLElement>("#legendHere").textContent = `Ground ${fmtM(heightMetres(place.north, place.east))}`;
+  if (ground) $<HTMLElement>("#legendHere").textContent = `Ground ${fmtM(heightMetres(place.north, place.east))}`;
   renderer?.render(scene!, camera!);
 }
 
@@ -653,8 +505,6 @@ function terrainMaterial(topo: THREE.Texture, overlay: THREE.Texture, mix: numbe
 
 function buildMesh(data: Ground, topo: THREE.Texture, overlay: THREE.Texture, mix: number) {
   if (!scene) return;
-  globe = false;
-  dropShell();
   if (rover) rover.visible = true;
   if (mesh) {
     scene.remove(mesh);
@@ -702,19 +552,13 @@ function buildMesh(data: Ground, topo: THREE.Texture, overlay: THREE.Texture, mi
   scene.add(mesh);
 }
 
-async function loadUrl(url: string, generation: number) {
-  const texture = await new THREE.TextureLoader().loadAsync(url);
-  if (generation !== colorToken) {
-    texture.dispose();
-    return null;
-  }
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
-  return texture;
+function patchQuery(spot: WorldSpot) {
+  if (bodyKey(spot.body) !== "earth") return "";
+  return "&km=16&px=2048&samples=140";
 }
 
 async function loadTexture(spot: WorldSpot, which: string, generation: number) {
-  const url = `/api/ground.png?body=${encodeURIComponent(bodyKey(spot.body))}&lat=${spot.lat}&lon=${spot.lon}&layer=${encodeURIComponent(which)}&v=${stamp}`;
+  const url = `/api/ground.png?body=${encodeURIComponent(bodyKey(spot.body))}&lat=${spot.lat}&lon=${spot.lon}&layer=${encodeURIComponent(which)}${patchQuery(spot)}&v=${stamp}`;
   const texture = await new THREE.TextureLoader().loadAsync(url);
   if (generation !== colorToken) {
     texture.dispose();
@@ -740,30 +584,9 @@ async function showSpot(reset: boolean) {
   const hint = $<HTMLElement>("#worldHint");
   hint.textContent = "Building this place…";
   try {
-    if (bodyKey(spot.body) === "earth") {
-      const photo = await loadUrl(`/api/earth-globe.png?v=${stamp}`, paint);
-      const overlay = layer === "elevation" ? null : await loadUrl(`/map/layer/earth/${encodeURIComponent(layer)}.png?v=${stamp}`, paint);
-      if (generation !== buildToken || !photo) return;
-      ground = null;
-      heights = null;
-      viewLat = spot.lat;
-      viewLon = ((spot.lon + 180) % 360 + 360) % 360 - 180;
-      if (reset) {
-        altitudeKm = 1600;
-        yaw = 0;
-        orbit = 0.9;
-      }
-      buildGlobe(photo, overlay ?? photo, overlay ? 1 : 0);
-      applyAtmosphere(spot.body);
-      paintLegend();
-      hint.textContent = "Click the view, then look with the mouse. Scroll zooms. W A S D flies across the planet. Shift is faster. Esc lets the mouse go.";
-      $<HTMLElement>("#worldWhere").textContent = `${spot.body} · ${fmtLL(viewLat, viewLon)}`;
-      loop(true);
-      renderer?.setSize($<HTMLCanvasElement>("#worldCanvas").clientWidth, $<HTMLCanvasElement>("#worldCanvas").clientHeight, false);
-      return;
-    }
+    const patch = patchQuery(spot);
     const [data, topo, overlay] = await Promise.all([
-      fetch(`/api/ground?body=${encodeURIComponent(bodyKey(spot.body))}&lat=${spot.lat}&lon=${spot.lon}`).then(async (response) => {
+      fetch(`/api/ground?body=${encodeURIComponent(bodyKey(spot.body))}&lat=${spot.lat}&lon=${spot.lon}${patch}`).then(async (response) => {
         const payload = await response.json() as Ground & { error?: string };
         if (!response.ok) throw new Error(payload.error || "The ground could not be built.");
         return payload;
@@ -798,26 +621,6 @@ async function swapColor() {
   if (!spot || !mesh) return;
   const generation = ++colorToken;
   const material = mesh.material as THREE.ShaderMaterial;
-  if (globe) {
-    if (layer === "elevation") {
-      const current = material.uniforms.overlayMap.value as THREE.Texture;
-      const topo = material.uniforms.topoMap.value as THREE.Texture;
-      if (current !== topo) current.dispose();
-      material.uniforms.overlayMap.value = topo;
-      material.uniforms.overlayMix.value = 0;
-      paintLegend();
-      return;
-    }
-    const texture = await loadUrl(`/map/layer/earth/${encodeURIComponent(layer)}.png?v=${stamp}`, generation);
-    if (!texture || generation !== colorToken || !mesh) return;
-    const current = material.uniforms.overlayMap.value as THREE.Texture;
-    const topo = material.uniforms.topoMap.value as THREE.Texture;
-    if (current !== topo) current.dispose();
-    material.uniforms.overlayMap.value = texture;
-    material.uniforms.overlayMix.value = 1;
-    paintLegend();
-    return;
-  }
   if (layer === "elevation") {
     const current = material.uniforms.overlayMap.value as THREE.Texture;
     const topo = material.uniforms.topoMap.value as THREE.Texture;
@@ -863,14 +666,8 @@ function wire() {
     if (document.pointerLockElement !== canvas) return;
     yaw -= event.movementX * 0.0022;
     orbit -= event.movementY * 0.0016;
-    orbit = globe ? Math.max(0.02, Math.min(1.25, orbit)) : Math.max(0.12, Math.min(1.15, orbit));
+    orbit = Math.max(0.12, Math.min(1.15, orbit));
   });
-  canvas.addEventListener("wheel", (event) => {
-    if (!globe) return;
-    altitudeKm *= Math.exp(event.deltaY * 0.0012);
-    altitudeKm = Math.max(4, Math.min(28000, altitudeKm));
-    event.preventDefault();
-  }, { passive: false });
   const watch = (event: KeyboardEvent, down: boolean) => {
     const key = event.key.toLowerCase();
     if (!["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright", "shift"].includes(key)) return;
@@ -1038,7 +835,7 @@ function legendFor(body: string): { title: string; rows: Swatch[] } {
 function paintLegend() {
   const box = $<HTMLElement>("#worldLegend");
   const spot = currentSpot();
-  if (!spot || (!ground && !globe)) {
+  if (!spot || !ground) {
     box.hidden = true;
     return;
   }
@@ -1049,11 +846,9 @@ function paintLegend() {
     `<li><i style="background:${row.color}"></i><span>${row.label.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] ?? c))}</span></li>`).join("");
   const earth = bodyKey(spot.body) === "earth";
   $<HTMLElement>("#legendNote").textContent = earth
-    ? (layer === "elevation" ? "Google Earth satellite. Pick another map to drape it on the planet." : "These colors are draped on Google Earth.")
+    ? (layer === "elevation" ? "Google Earth satellite under a real-size rover." : "These colors sit on the Google Earth photo.")
     : "";
-  $<HTMLElement>("#legendHere").textContent = globe
-    ? `${Math.round(altitudeKm).toLocaleString()} km up`
-    : `Ground ${fmtM(heightMetres(place.north, place.east))}`;
+  $<HTMLElement>("#legendHere").textContent = `Ground ${fmtM(heightMetres(place.north, place.east))}`;
 }
 
 async function fillLayers() {
