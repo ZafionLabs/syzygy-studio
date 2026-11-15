@@ -355,6 +355,25 @@ def test_landing_safety_marks_cliffs_water_and_priorities():
     assert image.mode == "RGBA" and image.size == (20, 20)
 
 
+def test_prepare_map_refuses_pictures():
+    from terrain_bot.updates import prepare_map
+
+    photo = io.BytesIO()
+    Image.new("RGB", (400, 300), (9, 9, 9)).save(photo, format="JPEG")
+    with pytest.raises(ValueError, match="picture"):
+        prepare_map("mars", "geology", photo.getvalue(), "shot.jpg")
+    with pytest.raises(ValueError, match="picture"):
+        prepare_map("mars", "elevation", photo.getvalue(), "shot.jpg")
+    square = io.BytesIO()
+    Image.new("RGB", (128, 128), (1, 2, 3)).save(square, format="PNG")
+    with pytest.raises(ValueError, match="not a global map"):
+        prepare_map("earth", "temperature", square.getvalue(), "snapshot.png")
+    wide = io.BytesIO()
+    Image.new("RGB", (128, 64), (4, 5, 6)).save(wide, format="PNG")
+    saved = prepare_map("mars", "weather", wide.getvalue(), "weather.png")
+    assert saved["file"] == "mars_weather.png"
+
+
 def test_new_map_replaces_the_bundled_one(tmp_path, monkeypatch):
     import json
     import threading
@@ -393,7 +412,7 @@ def test_new_map_replaces_the_bundled_one(tmp_path, monkeypatch):
         assert theirs["elevation_m"] == pytest.approx(before)
         assert opener.open(base + "/map/images/moon.png").read().startswith(b"\x89PNG")
         picture = io.BytesIO()
-        Image.new("RGB", (4, 4), (12, 34, 56)).save(picture, format="PNG")
+        Image.new("RGB", (128, 64), (12, 34, 56)).save(picture, format="PNG")
         bundled = urlopen(base + "/map/layer/moon/radiation.png").read()
         layer = json.load(opener.open(Request(
             base + "/api/maps?body=moon&kind=radiation&name=heat.png",
@@ -409,6 +428,16 @@ def test_new_map_replaces_the_bundled_one(tmp_path, monkeypatch):
         with pytest.raises(HTTPError) as err:
             opener.open(Request(base + "/api/maps?body=moon&kind=elevation&name=notes.txt", data=b"not a map", method="POST"))
         assert err.value.code == 400
+        photo = io.BytesIO()
+        Image.new("RGB", (320, 240), (200, 10, 10)).save(photo, format="JPEG")
+        with pytest.raises(HTTPError) as photo_err:
+            opener.open(Request(base + "/api/maps?body=moon&kind=radiation&name=vacation.jpg", data=photo.getvalue(), method="POST"))
+        assert photo_err.value.code == 400
+        square = io.BytesIO()
+        Image.new("RGB", (128, 128), (1, 2, 3)).save(square, format="PNG")
+        with pytest.raises(HTTPError) as square_err:
+            opener.open(Request(base + "/api/maps?body=moon&kind=radiation&name=snapshot.png", data=square.getvalue(), method="POST"))
+        assert square_err.value.code == 400
         still = json.load(opener.open(base + "/api/height?body=moon&lat=0&lon=0"))
         assert still["elevation_m"] == pytest.approx(7777)
     finally:

@@ -1341,8 +1341,36 @@ async function init() {
       spot.classList.toggle("using", Boolean(row));
     });
   };
+  const mapShapeError = "That picture is not a global map. It has to be a PNG twice as wide as it is tall, at least 128 by 64 pixels, with north at the top and 180° west at the left.";
+  const checkMapFile = async (kind: string, file: File) => {
+    const name = file.name.toLowerCase();
+    if (kind === "elevation") {
+      if (!name.endsWith(".npz") && !name.endsWith(".npy")) {
+        throw new Error("That is a picture. Elevation has to be a .npz or .npy grid of heights in metres.");
+      }
+      return;
+    }
+    const png = name.endsWith(".png") || file.type === "image/png";
+    const otherPicture = file.type.startsWith("image/") && file.type !== "image/png";
+    if (otherPicture || !png) {
+      throw new Error("That file is a picture, not a map. Drop a PNG of the whole body, twice as wide as it is tall.");
+    }
+    const bitmap = await createImageBitmap(file).catch(() => null);
+    if (!bitmap) throw new Error("That file is not a PNG map.");
+    const ratio = bitmap.width / bitmap.height;
+    const tooSmall = bitmap.width < 128 || bitmap.height < 64;
+    const wrongShape = Math.abs(ratio - 2) > 0.05;
+    bitmap.close();
+    if (tooSmall || wrongShape) throw new Error(mapShapeError);
+  };
   const useMapFile = async (body: string, kind: string, file: File, state: HTMLElement) => {
     state.textContent = `Reading ${file.name}…`;
+    try {
+      await checkMapFile(kind, file);
+    } catch (error) {
+      state.textContent = error instanceof Error ? error.message : "That map could not be used.";
+      return;
+    }
     const response = await fetch(`/api/maps?body=${encodeURIComponent(body)}&kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(file.name)}`, {
       method: "POST",
       headers: { "content-type": "application/octet-stream" },
