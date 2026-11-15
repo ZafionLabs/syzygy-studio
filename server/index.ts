@@ -5,7 +5,7 @@ import { sql } from "../src/lib/db.ts";
 
 const port = Number(process.env.PORT || 8000);
 const pythonUrl = process.env.PYTHON_URL || "http://127.0.0.1:8010";
-const dist = path.resolve("frontend/dist");
+const dist = path.resolve("dist");
 
 type SearchRow = {
   id: number;
