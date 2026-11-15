@@ -67,7 +67,8 @@
   .world-legend ul { list-style: none; margin: 0; padding: 0; }
   .world-legend li { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
   .world-legend i { width: 14px; height: 14px; border-radius: 3px; flex: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); }
-  .world-legend #legendHere { margin-top: 4px; color: #c5d0de; font-variant-numeric: tabular-nums; }
+  .world-legend #legendNote { margin-top: 4px; color: var(--muted); font-size: 11px; }
+  .world-legend #legendHere { margin-top: 2px; color: #c5d0de; font-variant-numeric: tabular-nums; }
   .twin-safety h3 { margin: 0 0 4px; font-size: 14px; }
   .twin-safety li { margin: 0 0 4px; }
   #safetyBar input[type="range"] { width: 88px; padding: 0; accent-color: var(--ok); pointer-events: none; }

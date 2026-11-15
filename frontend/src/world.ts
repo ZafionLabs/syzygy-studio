@@ -3,6 +3,7 @@ import * as THREE from "three";
 export type WorldSpot = { body: string; lat: number; lon: number };
 
 type Ground = {
+  body: string;
   rows: number;
   cols: number;
   north_km: number;
@@ -446,6 +447,7 @@ function terrainMaterial(topo: THREE.Texture, overlay: THREE.Texture, mix: numbe
       overlayMap: { value: overlay },
       detailMap: { value: detailTexture() },
       overlayMix: { value: mix },
+      photoBase: { value: 0 },
       sunDir: { value: new THREE.Vector3(80, 140, 40).normalize() },
     },
     vertexShader: `
@@ -468,6 +470,7 @@ function terrainMaterial(topo: THREE.Texture, overlay: THREE.Texture, mix: numbe
       uniform sampler2D overlayMap;
       uniform sampler2D detailMap;
       uniform float overlayMix;
+      uniform float photoBase;
       uniform vec3 sunDir;
       varying vec2 vUv;
       varying vec3 vNormal;
@@ -479,8 +482,10 @@ function terrainMaterial(topo: THREE.Texture, overlay: THREE.Texture, mix: numbe
         vec3 grit = texture2D(detailMap, vWorld.xz * 42.0).rgb;
         float lambert = max(dot(normalize(vNormal), normalize(sunDir)), 0.0);
         vec3 color = mix(topo, over, overlayMix * 0.72);
-        color *= mix(vec3(1.0), grit, 0.45);
-        color *= mix(0.8, 1.05, vShade) * (0.9 + 0.1 * lambert);
+        float gritMix = photoBase > 0.5 ? 0.16 : 0.45;
+        color *= mix(vec3(1.0), grit, gritMix);
+        float relief = photoBase > 0.5 ? mix(0.94, 1.06, vShade) : mix(0.8, 1.05, vShade);
+        color *= relief * (0.9 + 0.1 * lambert);
         gl_FragColor = vec4(color, 1.0);
       }
     `,
@@ -529,7 +534,9 @@ function buildMesh(data: Ground, topo: THREE.Texture, overlay: THREE.Texture, mi
   geometry.setAttribute("shade", new THREE.BufferAttribute(reliefShade(data), 1));
   geometry.setIndex(index);
   geometry.computeVertexNormals();
-  mesh = new THREE.Mesh(geometry, terrainMaterial(topo, overlay, mix));
+  const material = terrainMaterial(topo, overlay, mix);
+  material.uniforms.photoBase.value = data.body === "earth" ? 1 : 0;
+  mesh = new THREE.Mesh(geometry, material);
   scene.add(mesh);
 }
 
@@ -684,12 +691,12 @@ function legendFor(body: string): { title: string; rows: Swatch[] } {
   const named: Record<string, Record<string, { title: string; rows: Swatch[] }>> = {
     earth: {
       elevation: {
-        title: "Elevation",
+        title: "Google Maps",
         rows: [
-          { color: "#215e7b", label: "Deep ocean" },
-          { color: "#44984a", label: "Low ground" },
-          { color: "#b7b55e", label: "High ground" },
-          { color: "#fdfafa", label: "Highest peaks" },
+          { color: "#3d6b3a", label: "Plants and fields" },
+          { color: "#c2b48a", label: "Bare ground" },
+          { color: "#1d4e89", label: "Water" },
+          { color: "#f4f7fb", label: "Snow, ice, or cloud" },
         ],
       },
       temperature: {
@@ -819,6 +826,10 @@ function paintLegend() {
   $<HTMLElement>("#legendTitle").textContent = legend.title;
   $<HTMLElement>("#legendItems").innerHTML = legend.rows.map((row) =>
     `<li><i style="background:${row.color}"></i><span>${row.label.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] ?? c))}</span></li>`).join("");
+  const earth = bodyKey(spot.body) === "earth";
+  $<HTMLElement>("#legendNote").textContent = earth
+    ? (layer === "elevation" ? "Google Maps satellite. Pick another map to color it." : "These colors sit on the Google Maps photo.")
+    : "";
   $<HTMLElement>("#legendHere").textContent = `Ground ${fmtM(heightMetres(place.north, place.east))}`;
 }
 

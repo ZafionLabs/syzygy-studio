@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import math
+from concurrent.futures import ThreadPoolExecutor
+from urllib.request import Request, urlopen
 
 import numpy as np
 from PIL import Image
@@ -101,6 +103,118 @@ def _crop(image: Image.Image, lat: float, lon: float, half_north: float, half_ea
         cropped.paste(west, (0, 0))
         cropped.paste(east, (west.width, 0))
     return cropped.resize((512, 512), Image.Resampling.BILINEAR)
+
+
+TILE = 256
+_SATELLITE: dict[tuple[int, int, int], np.ndarray] = {}
+
+
+def _zoom(half_east: float, pixels: int = 512) -> int:
+    span = max(half_east * 2.0, 1e-4)
+    level = math.log2(pixels * 360.0 / span / TILE)
+    return int(np.clip(round(level), 2, 16))
+
+
+def _mercator(lat: np.ndarray, lon: np.ndarray, zoom: int) -> tuple[np.ndarray, np.ndarray]:
+    scale = TILE * (1 << zoom)
+    lat = np.clip(np.asarray(lat, dtype=np.float64), -85.05112878, 85.05112878)
+    lon = np.asarray(lon, dtype=np.float64)
+    x = (lon + 180.0) / 360.0 * scale
+    lat_rad = np.deg2rad(lat)
+    y = (1.0 - np.log(np.tan(lat_rad) + 1.0 / np.cos(lat_rad)) / np.pi) / 2.0 * scale
+    return x, y
+
+
+def _google_tile(zoom: int, x: int, y: int) -> np.ndarray | None:
+    key = (zoom, x, y)
+    cached = _SATELLITE.get(key)
+    if cached is not None:
+        return cached
+    url = f"https://mt{(x + y) % 4}.google.com/vt/lyrs=s&x={x}&y={y}&z={zoom}"
+    try:
+        with urlopen(Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=8) as response:
+            raw = response.read()
+        tile = np.asarray(Image.open(io.BytesIO(raw)).convert("RGB").resize((TILE, TILE)))
+    except (OSError, ValueError):
+        return None
+    if len(_SATELLITE) > 256:
+        _SATELLITE.clear()
+    _SATELLITE[key] = tile
+    return tile
+
+
+def satellite_png(
+    lat: float,
+    lon: float,
+    radius_km: float,
+    span_km: float = SPAN_KM,
+    fetch=None,
+) -> bytes | None:
+    """Google Maps satellite photo of the same window as :func:`ground_grid`."""
+    lat = float(np.clip(lat, -90.0, 90.0))
+    lon = ((float(lon) + 180.0) % 360.0) - 180.0
+    half_north, half_east, _, _ = _window(radius_km, lat, span_km)
+    zoom = _zoom(half_east)
+    size = 512
+    rows = np.linspace(lat + half_north, lat - half_north, size)
+    cols = np.linspace(lon - half_east, lon + half_east, size)
+    lon_grid, lat_grid = np.meshgrid(cols, rows)
+    xs, ys = _mercator(lat_grid, lon_grid, zoom)
+    x0 = int(np.floor(xs.min()))
+    y0 = int(np.floor(ys.min()))
+    x1 = int(np.ceil(xs.max()))
+    y1 = int(np.ceil(ys.max()))
+    tiles_x = 1 << zoom
+    fetch = fetch or _google_tile
+    wanted = []
+    for ty in range(y0 // TILE, y1 // TILE + 1):
+        if ty < 0 or ty >= tiles_x:
+            continue
+        for tx in range(x0 // TILE, x1 // TILE + 1):
+            wanted.append((tx, ty))
+    tiles: dict[tuple[int, int], np.ndarray] = {}
+    if fetch is _google_tile:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            loaded = list(pool.map(lambda item: ((item[0], item[1]), fetch(zoom, item[0] % tiles_x, item[1])), wanted))
+    else:
+        loaded = [((tx, ty), fetch(zoom, tx % tiles_x, ty)) for tx, ty in wanted]
+    for (tx, ty), tile in loaded:
+        if tile is not None:
+            tiles[(tx, ty)] = np.asarray(tile)
+    if not tiles:
+        return None
+    width = max(1, x1 - x0 + 1)
+    height = max(1, y1 - y0 + 1)
+    canvas = np.zeros((height, width, 3), np.uint8)
+    for (tx, ty), tile in tiles.items():
+        tile = np.asarray(Image.fromarray(tile).convert("RGB").resize((TILE, TILE)))
+        left = tx * TILE - x0
+        top = ty * TILE - y0
+        src_x = max(0, -left)
+        src_y = max(0, -top)
+        dst_x = max(0, left)
+        dst_y = max(0, top)
+        copy_w = min(TILE - src_x, width - dst_x)
+        copy_h = min(TILE - src_y, height - dst_y)
+        if copy_w > 0 and copy_h > 0:
+            canvas[dst_y:dst_y + copy_h, dst_x:dst_x + copy_w] = tile[src_y:src_y + copy_h, src_x:src_x + copy_w]
+    ix = np.clip(xs - x0, 0, width - 1.001)
+    iy = np.clip(ys - y0, 0, height - 1.001)
+    x_i = np.floor(ix).astype(int)
+    y_i = np.floor(iy).astype(int)
+    x_j = np.clip(x_i + 1, 0, width - 1)
+    y_j = np.clip(y_i + 1, 0, height - 1)
+    tx = (ix - x_i)[..., None]
+    ty = (iy - y_i)[..., None]
+    sampled = (
+        canvas[y_i, x_i] * (1 - ty) * (1 - tx)
+        + canvas[y_i, x_j] * (1 - ty) * tx
+        + canvas[y_j, x_i] * ty * (1 - tx)
+        + canvas[y_j, x_j] * ty * tx
+    )
+    out = io.BytesIO()
+    Image.fromarray(sampled.astype(np.uint8), "RGB").save(out, format="PNG")
+    return out.getvalue()
 
 
 def ground_png(raw: bytes, lat: float, lon: float, radius_km: float, span_km: float = SPAN_KM) -> bytes:

@@ -518,6 +518,25 @@ def test_ground_patch_matches_the_map_window():
     assert joined.getpixel((384, 256))[0] > joined.getpixel((384, 256))[2]
 
 
+def test_earth_satellite_uses_the_tile_under_the_place():
+    from terrain_bot.ground import _mercator, _window, _zoom, satellite_png
+
+    def tile(zoom, x, y):
+        color = ((x * 40) % 255, (y * 25) % 255, 80)
+        return np.full((256, 256, 3), color, np.uint8)
+
+    image = Image.open(io.BytesIO(satellite_png(40.0, -105.0, EARTH.mean_radius_km, span_km=80, fetch=tile)))
+    assert image.size == (512, 512)
+    _, half_east, _, _ = _window(EARTH.mean_radius_km, 40.0, 80)
+    zoom = _zoom(half_east)
+    xs, ys = _mercator(np.array([40.0]), np.array([-105.0]), zoom)
+    tx, ty = int(xs[0]) // 256, int(ys[0]) // 256
+    center = image.getpixel((256, 256))
+    assert center[0] == (tx * 40) % 255
+    assert center[1] == (ty * 25) % 255
+    assert satellite_png(0.0, 0.0, EARTH.mean_radius_km, fetch=lambda *_: None) is None
+
+
 def test_compare_maps_scores_every_map():
     from terrain_bot.layers import compare_maps
 

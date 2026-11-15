@@ -21,7 +21,7 @@ from .updates import active_updates, prepare_map
 from .features import compute_features
 from .explain import describe_surface, explain_query, explain_top, feature_label, feature_unit
 from .heightmap import Heightmap, heightmap_from_dem
-from .ground import SPAN_KM, ground_grid, ground_png
+from .ground import SPAN_KM, ground_grid, ground_png, satellite_png
 from .layers import catalog, compare_maps, layer_png
 from .safety import FACTORS, build_safety, describe_cell, encode_png
 from .matcher import MODES, SURFACES, Match, MatchConfig, SitePoint, TerrainMatcher
@@ -382,6 +382,10 @@ class TerrainApp:
         hm = self._map_hm(body, "dem", session_id)
         if hm is None:
             raise ValueError(f"unknown body {body!r}")
+        if body.lower() == "earth" and layer == "elevation":
+            photo = satellite_png(lat, lon, hm.body.mean_radius_km, km)
+            if photo:
+                return photo
         raw = self.map_png("dem", body, session_id) if layer == "elevation" else self.layer_bytes(body, layer, session_id)
         return ground_png(raw, lat, lon, hm.body.mean_radius_km, km)
 
