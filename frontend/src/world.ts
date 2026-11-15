@@ -32,6 +32,10 @@ let scene: THREE.Scene | null = null;
 let camera: THREE.PerspectiveCamera | null = null;
 let mesh: THREE.Mesh | null = null;
 let rover: THREE.Group | null = null;
+let sky: THREE.Mesh | null = null;
+let stars: THREE.Points | null = null;
+let sunLight: THREE.DirectionalLight | null = null;
+let ambient: THREE.AmbientLight | null = null;
 let ground: Ground | null = null;
 let heights: Float32Array | null = null;
 let facts: Record<string, Record<string, LayerFact>> = {};
@@ -68,13 +72,17 @@ function ensureRenderer() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x070b12);
-  scene.fog = new THREE.Fog(0x070b12, 80, 420);
+  scene.background = new THREE.Color(0x6eaddf);
   camera = new THREE.PerspectiveCamera(62, 1, 0.0004, 400);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.72));
-  const sun = new THREE.DirectionalLight(0xfff4e0, 1.8);
-  sun.position.set(80, 140, 40);
-  scene.add(sun);
+  ambient = new THREE.AmbientLight(0xffffff, 0.62);
+  scene.add(ambient);
+  sunLight = new THREE.DirectionalLight(0xfff4e0, 1.7);
+  sunLight.position.set(80, 140, 40);
+  scene.add(sunLight);
+  sky = makeSky();
+  stars = makeStars();
+  scene.add(sky);
+  scene.add(stars);
   rover = makeRover();
   scene.add(rover);
   const resize = () => {
@@ -111,34 +119,196 @@ function surface(northKm: number, eastKm: number) {
   return { x: eastKm, y: metres / 1000 - drop, z: -northKm };
 }
 
+function paintedTexture(base: string, ink: string, lines: boolean) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const draw = canvas.getContext("2d");
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  if (!draw) return texture;
+  draw.fillStyle = base;
+  draw.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 500; i += 1) {
+    draw.fillStyle = ink;
+    draw.globalAlpha = 0.15 + Math.random() * 0.35;
+    draw.fillRect(Math.random() * 128, Math.random() * 128, 1 + Math.random() * 2, 1 + Math.random() * 2);
+  }
+  draw.globalAlpha = 1;
+  if (lines) {
+    draw.strokeStyle = ink;
+    draw.globalAlpha = 0.45;
+    draw.strokeRect(6, 6, 116, 116);
+    draw.beginPath();
+    draw.moveTo(6, 64);
+    draw.lineTo(122, 64);
+    draw.stroke();
+  }
+  return texture;
+}
+
+function panelTexture(base: string, ink: string) {
+  return paintedTexture(base, ink, true);
+}
+
+function treadTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const draw = canvas.getContext("2d");
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  if (!draw) return texture;
+  draw.fillStyle = "#241e1a";
+  draw.fillRect(0, 0, 64, 64);
+  draw.strokeStyle = "#6b6258";
+  for (let x = 4; x < 64; x += 8) {
+    draw.beginPath();
+    draw.moveTo(x, 0);
+    draw.lineTo(x + 10, 64);
+    draw.stroke();
+  }
+  return texture;
+}
+
+function part(geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D) {
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(x, y, z);
+  parent.add(mesh);
+  return mesh;
+}
+
+function makeSky() {
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(120, 28, 18),
+    new THREE.MeshBasicMaterial({ side: THREE.BackSide, depthWrite: false, fog: false }),
+  );
+  mesh.renderOrder = -1;
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+function makeStars() {
+  const count = 220;
+  const positions = new Float32Array(count * 3);
+  for (let i = 0; i < count; i += 1) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(1 - Math.random());
+    const radius = 90;
+    positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+    positions[i * 3 + 1] = radius * Math.cos(phi);
+    positions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  const points = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xffffff, size: 1.3, sizeAttenuation: false, fog: false }));
+  points.visible = false;
+  points.frustumCulled = false;
+  return points;
+}
+
+function skyTexture(body: string) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 8;
+  canvas.height = 256;
+  const draw = canvas.getContext("2d");
+  if (!draw) return new THREE.CanvasTexture(canvas);
+  const fade = draw.createLinearGradient(0, 0, 0, 256);
+  if (body === "mars") {
+    fade.addColorStop(0, "#9a5b45");
+    fade.addColorStop(0.45, "#c98462");
+    fade.addColorStop(0.78, "#e7c3a4");
+    fade.addColorStop(1, "#efd0b4");
+  } else if (body === "moon") {
+    fade.addColorStop(0, "#000000");
+    fade.addColorStop(1, "#02030a");
+  } else {
+    fade.addColorStop(0, "#2f6fbe");
+    fade.addColorStop(0.42, "#79b4ea");
+    fade.addColorStop(0.78, "#d5e8f7");
+    fade.addColorStop(1, "#e7f2fb");
+  }
+  draw.fillStyle = fade;
+  draw.fillRect(0, 0, 8, 256);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function applyAtmosphere(bodyName: string) {
+  if (!scene || !sky || !stars || !sunLight || !ambient) return;
+  const body = bodyName.toLowerCase();
+  const span = ground?.north_km ?? 100;
+  const material = sky.material as THREE.MeshBasicMaterial;
+  material.map?.dispose();
+  material.map = skyTexture(body);
+  material.needsUpdate = true;
+  if (body === "moon") {
+    scene.fog = null;
+    scene.background = new THREE.Color(0x000000);
+    stars.visible = true;
+    sunLight.color.set(0xffffff);
+    sunLight.intensity = 1.9;
+    ambient.color.set(0xc8d0dc);
+    ambient.intensity = 0.28;
+  } else if (body === "mars") {
+    scene.background = new THREE.Color(0xc98462);
+    scene.fog = new THREE.Fog(0xe6c4a6, span * 0.22, span * 0.7);
+    stars.visible = false;
+    sunLight.color.set(0xffd2ad);
+    sunLight.intensity = 1.45;
+    ambient.color.set(0xffe0cc);
+    ambient.intensity = 0.58;
+  } else {
+    scene.background = new THREE.Color(0x6eaddf);
+    scene.fog = new THREE.Fog(0xd7e8f6, span * 0.25, span * 0.72);
+    stars.visible = false;
+    sunLight.color.set(0xfff6e8);
+    sunLight.intensity = 1.65;
+    ambient.color.set(0xe7f1fb);
+    ambient.intensity = 0.62;
+  }
+}
+
 function makeRover() {
   const group = new THREE.Group();
-  const hull = new THREE.Mesh(
-    new THREE.BoxGeometry(0.0022, 0.0009, 0.0032),
-    new THREE.MeshLambertMaterial({ color: 0xd7dde6 }),
-  );
-  hull.position.y = 0.00105;
-  group.add(hull);
-  const deck = new THREE.Mesh(
-    new THREE.BoxGeometry(0.0014, 0.00045, 0.0012),
-    new THREE.MeshLambertMaterial({ color: 0xc4a46a }),
-  );
-  deck.position.set(0, 0.0017, -0.0002);
-  group.add(deck);
-  const mast = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.0001, 0.0001, 0.0015, 8),
-    new THREE.MeshLambertMaterial({ color: 0x9aa6b5 }),
-  );
-  mast.position.set(0, 0.0023, -0.0007);
-  group.add(mast);
-  const wheel = new THREE.CylinderGeometry(0.00042, 0.00042, 0.00032, 10);
-  const rubber = new THREE.MeshLambertMaterial({ color: 0x22262e });
-  for (const [x, z] of [[-0.00105, -0.00105], [0.00105, -0.00105], [-0.00105, 0.00105], [0.00105, 0.00105]] as const) {
-    const meshWheel = new THREE.Mesh(wheel, rubber);
-    meshWheel.rotation.z = Math.PI / 2;
-    meshWheel.position.set(x, 0.00042, z);
-    group.add(meshWheel);
+  group.scale.setScalar(0.001);
+  const deckColor = new THREE.MeshLambertMaterial({ map: panelTexture("#9a7048", "#5c4030"), color: 0xffffff });
+  const white = new THREE.MeshLambertMaterial({ map: panelTexture("#e6e1d6", "#b7b1a6"), color: 0xffffff });
+  const dark = new THREE.MeshLambertMaterial({ map: treadTexture(), color: 0xffffff });
+  const lens = new THREE.MeshLambertMaterial({ color: 0x161311 });
+  const metal = new THREE.MeshLambertMaterial({ map: panelTexture("#8a8178", "#4e4842"), color: 0xffffff });
+  const wheelRadius = 0.26;
+  const wheelGeo = new THREE.CylinderGeometry(wheelRadius, wheelRadius, 0.18, 16);
+  const hubGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.2, 10);
+  for (const x of [-1.2, 1.2]) {
+    for (const z of [-1.15, 0, 1.05]) {
+      const wheel = part(wheelGeo, dark, x, wheelRadius, z, group);
+      wheel.rotation.z = Math.PI / 2;
+      const hub = part(hubGeo, metal, x, wheelRadius, z, group);
+      hub.rotation.z = Math.PI / 2;
+    }
+    part(new THREE.BoxGeometry(0.08, 0.08, 2.35), metal, x * 0.92, 0.42, -0.05, group);
   }
+  part(new THREE.BoxGeometry(2.15, 0.32, 1.85), deckColor, 0, 0.62, -0.05, group);
+  part(new THREE.BoxGeometry(1.15, 0.16, 1.35), new THREE.MeshLambertMaterial({ color: 0xb88958 }), 0, 0.84, 0.05, group);
+  part(new THREE.BoxGeometry(0.62, 0.28, 0.48), white, -0.35, 1.02, 0.25, group);
+  part(new THREE.BoxGeometry(0.38, 0.22, 0.34), white, 0.48, 0.98, 0.15, group);
+  const mast = part(new THREE.CylinderGeometry(0.055, 0.07, 1.15, 10), white, 0, 1.5, -0.42, group);
+  mast.position.y = 1.5;
+  part(new THREE.BoxGeometry(0.36, 0.2, 0.26), white, 0, 2.12, -0.48, group);
+  for (const x of [-0.09, 0.09]) {
+    const eye = part(new THREE.CylinderGeometry(0.045, 0.045, 0.08, 10), lens, x, 2.12, -0.62, group);
+    eye.rotation.x = Math.PI / 2;
+  }
+  part(new THREE.BoxGeometry(0.12, 0.12, 0.55), metal, -0.85, 0.78, -1.15, group);
+  part(new THREE.BoxGeometry(0.1, 0.1, 0.45), metal, -1.05, 0.62, -1.55, group);
+  part(new THREE.BoxGeometry(0.16, 0.16, 0.16), lens, -1.05, 0.55, -1.82, group);
+  const dish = part(new THREE.CylinderGeometry(0.28, 0.28, 0.04, 16), white, 0.62, 1.25, 0.55, group);
+  dish.rotation.x = 0.5;
+  dish.rotation.z = -0.4;
   return group;
 }
 
@@ -157,10 +327,10 @@ function applyCamera() {
   rover.rotation.y = -yaw;
   const faceN = Math.cos(yaw);
   const faceE = Math.sin(yaw);
-  const back = 0.028 + orbit * 0.02;
+  const back = 0.014 + orbit * 0.01;
   const camN = place.north - faceN * back;
   const camE = place.east - faceE * back;
-  let camY = foot.y + 0.008 + orbit * 0.012;
+  let camY = foot.y + 0.005 + orbit * 0.007;
   for (let stepT = 0.25; stepT <= 1; stepT += 0.25) {
     const groundY = surface(place.north + (camN - place.north) * stepT, place.east + (camE - place.east) * stepT).y;
     camY = Math.max(camY, groundY + CLEARANCE_KM);
@@ -168,7 +338,7 @@ function applyCamera() {
   const cam = surface(camN, camE);
   camera.position.set(cam.x, camY, cam.z);
   camera.up.set(0, 1, 0);
-  camera.lookAt(foot.x, foot.y + 0.0015, foot.z);
+  camera.lookAt(foot.x, foot.y + 0.0013, foot.z);
 }
 
 function step(dt: number) {
@@ -203,6 +373,10 @@ function frame() {
   const where = $<HTMLElement>("#worldWhere");
   const spot = currentSpot();
   if (spot && ground) where.textContent = `${spot.body} · ${here()}`;
+  if (camera) {
+    sky?.position.copy(camera.position);
+    stars?.position.copy(camera.position);
+  }
   if (ground) $<HTMLElement>("#legendHere").textContent = `Ground ${fmtM(heightMetres(place.north, place.east))}`;
   renderer?.render(scene!, camera!);
 }
@@ -220,13 +394,109 @@ function loop(on: boolean) {
   }
 }
 
-function buildMesh(data: Ground, texture: THREE.Texture) {
+let detail: THREE.Texture | null = null;
+
+function detailTexture() {
+  if (detail) return detail;
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 256;
+  const draw = canvas.getContext("2d");
+  if (!draw) return new THREE.CanvasTexture(canvas);
+  draw.fillStyle = "#f3f1ee";
+  draw.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 2200; i += 1) {
+    const shade = 150 + Math.floor(Math.random() * 90);
+    draw.fillStyle = `rgb(${shade},${shade},${shade})`;
+    draw.fillRect(Math.random() * 256, Math.random() * 256, 1 + Math.random() * 2, 1 + Math.random() * 2);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  detail = texture;
+  return texture;
+}
+
+function reliefShade(data: Ground) {
+  const { rows, cols } = data;
+  const shade = new Float32Array(rows * cols);
+  const cellNorth = (data.north_km * 1000) / (rows - 1);
+  const cellEast = (data.east_km * 1000) / (cols - 1);
+  const zenith = Math.PI / 4;
+  const azimuth = (Math.PI * 5) / 4;
+  const heightAt = (row: number, col: number) => data.elevation_m[Math.max(0, Math.min(rows - 1, row)) * cols + Math.max(0, Math.min(cols - 1, col))];
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const eastSlope = (heightAt(row, col + 1) - heightAt(row, col - 1)) / (2 * cellEast);
+      const northSlope = (heightAt(row - 1, col) - heightAt(row + 1, col)) / (2 * cellNorth);
+      const slope = Math.atan(Math.hypot(eastSlope, northSlope));
+      const aspect = Math.atan2(northSlope, -eastSlope);
+      const lit = Math.cos(zenith) * Math.cos(slope) + Math.sin(zenith) * Math.sin(slope) * Math.cos(azimuth - aspect);
+      shade[row * cols + col] = 0.4 + 0.6 * Math.max(0, lit);
+    }
+  }
+  return shade;
+}
+
+function terrainMaterial(topo: THREE.Texture, overlay: THREE.Texture, mix: number) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      topoMap: { value: topo },
+      overlayMap: { value: overlay },
+      detailMap: { value: detailTexture() },
+      overlayMix: { value: mix },
+      sunDir: { value: new THREE.Vector3(80, 140, 40).normalize() },
+    },
+    vertexShader: `
+      attribute float shade;
+      varying vec2 vUv;
+      varying vec3 vNormal;
+      varying vec3 vWorld;
+      varying float vShade;
+      void main() {
+        vUv = uv;
+        vShade = shade;
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        vWorld = world.xyz;
+        vNormal = normalize(mat3(modelMatrix) * normal);
+        gl_Position = projectionMatrix * viewMatrix * world;
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D topoMap;
+      uniform sampler2D overlayMap;
+      uniform sampler2D detailMap;
+      uniform float overlayMix;
+      uniform vec3 sunDir;
+      varying vec2 vUv;
+      varying vec3 vNormal;
+      varying vec3 vWorld;
+      varying float vShade;
+      void main() {
+        vec3 topo = texture2D(topoMap, vUv).rgb;
+        vec3 over = texture2D(overlayMap, vUv).rgb;
+        vec3 grit = texture2D(detailMap, vWorld.xz * 42.0).rgb;
+        float lambert = max(dot(normalize(vNormal), normalize(sunDir)), 0.0);
+        vec3 color = mix(topo, over, overlayMix * 0.72);
+        color *= mix(vec3(1.0), grit, 0.45);
+        color *= mix(0.8, 1.05, vShade) * (0.9 + 0.1 * lambert);
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `,
+  });
+}
+
+function buildMesh(data: Ground, topo: THREE.Texture, overlay: THREE.Texture, mix: number) {
   if (!scene) return;
   if (mesh) {
     scene.remove(mesh);
     mesh.geometry.dispose();
-    const previous = mesh.material as THREE.MeshLambertMaterial;
-    previous.map?.dispose();
+    const previous = mesh.material as THREE.ShaderMaterial;
+    const topoMap = previous.uniforms.topoMap.value as THREE.Texture;
+    const overlayMap = previous.uniforms.overlayMap.value as THREE.Texture;
+    topoMap.dispose();
+    if (overlayMap !== topoMap) overlayMap.dispose();
     previous.dispose();
   }
   const { rows, cols } = data;
@@ -256,18 +526,15 @@ function buildMesh(data: Ground, texture: THREE.Texture) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute("shade", new THREE.BufferAttribute(reliefShade(data), 1));
   geometry.setIndex(index);
   geometry.computeVertexNormals();
-  mesh = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ map: texture }));
+  mesh = new THREE.Mesh(geometry, terrainMaterial(topo, overlay, mix));
   scene.add(mesh);
-  if (scene.fog instanceof THREE.Fog) {
-    scene.fog.near = data.north_km * 0.35;
-    scene.fog.far = data.north_km * 0.62;
-  }
 }
 
-async function loadTexture(spot: WorldSpot, generation: number) {
-  const url = `/api/ground.png?body=${encodeURIComponent(bodyKey(spot.body))}&lat=${spot.lat}&lon=${spot.lon}&layer=${encodeURIComponent(layer)}&v=${stamp}`;
+async function loadTexture(spot: WorldSpot, which: string, generation: number) {
+  const url = `/api/ground.png?body=${encodeURIComponent(bodyKey(spot.body))}&lat=${spot.lat}&lon=${spot.lon}&layer=${encodeURIComponent(which)}&v=${stamp}`;
   const texture = await new THREE.TextureLoader().loadAsync(url);
   if (generation !== colorToken) {
     texture.dispose();
@@ -293,24 +560,26 @@ async function showSpot(reset: boolean) {
   const hint = $<HTMLElement>("#worldHint");
   hint.textContent = "Building this place…";
   try {
-    const [data, texture] = await Promise.all([
+    const [data, topo, overlay] = await Promise.all([
       fetch(`/api/ground?body=${encodeURIComponent(bodyKey(spot.body))}&lat=${spot.lat}&lon=${spot.lon}`).then(async (response) => {
         const payload = await response.json() as Ground & { error?: string };
         if (!response.ok) throw new Error(payload.error || "The ground could not be built.");
         return payload;
       }),
-      loadTexture(spot, paint),
+      loadTexture(spot, "elevation", paint),
+      layer === "elevation" ? Promise.resolve(null) : loadTexture(spot, layer, paint),
     ]);
-    if (generation !== buildToken || !texture) return;
+    if (generation !== buildToken || !topo) return;
     ground = data;
     heights = Float32Array.from(data.elevation_m);
-    buildMesh(data, texture);
+    buildMesh(data, topo, overlay ?? topo, overlay ? 1 : 0);
     if (reset) {
       place.north = 0;
       place.east = 0;
       yaw = 0;
       orbit = 0.42;
     }
+    applyAtmosphere(spot.body);
     paintLegend();
     hint.textContent = "Click the view, then turn with the mouse. W A S D drives the rover over the real ground. Shift is faster. Esc lets the mouse go.";
     $<HTMLElement>("#worldWhere").textContent = `${spot.body} · ${fmtLL(spot.lat, spot.lon)}`;
@@ -326,12 +595,23 @@ async function swapColor() {
   const spot = currentSpot();
   if (!spot || !mesh) return;
   const generation = ++colorToken;
-  const texture = await loadTexture(spot, generation);
+  const material = mesh.material as THREE.ShaderMaterial;
+  if (layer === "elevation") {
+    const current = material.uniforms.overlayMap.value as THREE.Texture;
+    const topo = material.uniforms.topoMap.value as THREE.Texture;
+    if (current !== topo) current.dispose();
+    material.uniforms.overlayMap.value = topo;
+    material.uniforms.overlayMix.value = 0;
+    paintLegend();
+    return;
+  }
+  const texture = await loadTexture(spot, layer, generation);
   if (!texture || generation !== colorToken || !mesh) return;
-  const material = mesh.material as THREE.MeshLambertMaterial;
-  material.map?.dispose();
-  material.map = texture;
-  material.needsUpdate = true;
+  const current = material.uniforms.overlayMap.value as THREE.Texture;
+  const topo = material.uniforms.topoMap.value as THREE.Texture;
+  if (current !== topo) current.dispose();
+  material.uniforms.overlayMap.value = texture;
+  material.uniforms.overlayMix.value = 1;
   paintLegend();
 }
 
