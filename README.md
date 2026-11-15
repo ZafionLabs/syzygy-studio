@@ -16,8 +16,9 @@ step-by-step working.
 that brightness, then forces the curve to rise with brightness. Run
 `python -m terrain_bot download-dem` to refetch the DEMs (about 5 MB total).
 
-A newer NASA file replaces the bundled map for that body. Drop it in `data/updates`, or open
-**Place maps** and drop the file on that map. Elevation is `{body}_elevation.npz` (array `elevation` in metres,
+A newer NASA file replaces the bundled map for that body. Drop it in `data/updates` and restart
+the terrain service. A file dropped under **Place maps** is used for that browser visit only;
+other visitors keep the bundled map, and it is forgotten when the service restarts. Elevation is `{body}_elevation.npz` (array `elevation` in metres,
 optional `lat_range` and `lon_range`) or a full-globe `{body}_elevation.npy`. Temperature, ice and
 water, geology, weather, light, and radiation are `{body}_{kind}.png` in the same simple-cylindrical
 frame as the built-in maps, north at the top and 180° west at the left. The running bot uses that

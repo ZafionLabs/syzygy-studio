@@ -358,9 +358,10 @@ def test_landing_safety_marks_cliffs_water_and_priorities():
 def test_new_map_replaces_the_bundled_one(tmp_path, monkeypatch):
     import json
     import threading
+    from http.cookiejar import CookieJar
     from http.server import ThreadingHTTPServer
     from urllib.error import HTTPError
-    from urllib.request import Request, urlopen
+    from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
     from terrain_bot.web import TerrainApp, make_handler
 
@@ -370,36 +371,45 @@ def test_new_map_replaces_the_bundled_one(tmp_path, monkeypatch):
     np.savez_compressed(packed, elevation=elev, lat_range=np.array([-90.0, 90.0]), lon_range=np.array([-180.0, 180.0]))
     hm_a = heightmap_from_array(_synthetic_terrain(seed=5), EARTH)
     hm_b = heightmap_from_array(_synthetic_terrain(seed=6), MOON)
+    row, col = hm_b.pixel_of(10, 20)
+    before = float(hm_b.elevation[row, col])
     app = TerrainApp({"images": {"earth": hm_a, "moon": hm_b}}, MatchConfig(), default_source="images", online=False)
     server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(app))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{server.server_address[1]}"
+    opener = build_opener(HTTPCookieProcessor(CookieJar()))
     try:
-        saved = json.load(urlopen(Request(
+        saved = json.load(opener.open(Request(
             base + "/api/maps?body=moon&kind=elevation&name=lola_new.npz",
             data=packed.getvalue(),
             method="POST",
         )))
         assert saved["file"] == "moon_elevation.npz"
-        assert (tmp_path / "moon_elevation.npz").is_file()
-        height = json.load(urlopen(base + "/api/height?body=moon&lat=10&lon=20"))
-        assert height["elevation_m"] == pytest.approx(7777)
-        assert urlopen(base + "/map/images/moon.png").read().startswith(b"\x89PNG")
+        assert saved["scope"] == "visit"
+        assert list(tmp_path.iterdir()) == []
+        mine = json.load(opener.open(base + "/api/height?body=moon&lat=10&lon=20"))
+        assert mine["elevation_m"] == pytest.approx(7777)
+        theirs = json.load(urlopen(base + "/api/height?body=moon&lat=10&lon=20"))
+        assert theirs["elevation_m"] == pytest.approx(before)
+        assert opener.open(base + "/map/images/moon.png").read().startswith(b"\x89PNG")
         picture = io.BytesIO()
         Image.new("RGB", (4, 4), (12, 34, 56)).save(picture, format="PNG")
-        layer = json.load(urlopen(Request(
+        bundled = urlopen(base + "/map/layer/moon/radiation.png").read()
+        layer = json.load(opener.open(Request(
             base + "/api/maps?body=moon&kind=radiation&name=heat.png",
             data=picture.getvalue(),
             method="POST",
         )))
         assert layer["file"] == "moon_radiation.png"
-        assert urlopen(base + "/map/layer/moon/radiation.png").read().startswith(b"\x89PNG")
-        listed = json.load(urlopen(base + "/api/maps"))
+        personal = opener.open(base + "/map/layer/moon/radiation.png").read()
+        assert personal.startswith(b"\x89PNG") and personal != bundled
+        listed = json.load(opener.open(base + "/api/maps"))
         assert {row["kind"] for row in listed["updates"]} == {"elevation", "radiation"}
+        assert json.load(urlopen(base + "/api/maps"))["updates"] == []
         with pytest.raises(HTTPError) as err:
-            urlopen(Request(base + "/api/maps?body=moon&kind=elevation&name=notes.txt", data=b"not a map", method="POST"))
+            opener.open(Request(base + "/api/maps?body=moon&kind=elevation&name=notes.txt", data=b"not a map", method="POST"))
         assert err.value.code == 400
-        still = json.load(urlopen(base + "/api/height?body=moon&lat=0&lon=0"))
+        still = json.load(opener.open(base + "/api/height?body=moon&lat=0&lon=0"))
         assert still["elevation_m"] == pytest.approx(7777)
     finally:
         server.shutdown()

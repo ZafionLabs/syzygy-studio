@@ -44,14 +44,18 @@ def _wrap_mean(values: np.ndarray, size: int) -> np.ndarray:
     return uniform_filter(values, size=size, mode="wrap")
 
 
-def _layer_index(body: str, layer: str, shape: tuple[int, int]) -> np.ndarray | None:
-    from .layers import layer_path
+def _layer_index(body: str, layer: str, shape: tuple[int, int], png: bytes | None = None) -> np.ndarray | None:
+    if png is None:
+        from .layers import layer_path
 
-    try:
-        path = layer_path(body, layer)
-    except ValueError:
-        return None
-    image = Image.open(path).convert("RGB").resize((shape[1], shape[0]), Image.Resampling.BILINEAR)
+        try:
+            path = layer_path(body, layer)
+        except ValueError:
+            return None
+        image = Image.open(path)
+    else:
+        image = Image.open(io.BytesIO(png))
+    image = image.convert("RGB").resize((shape[1], shape[0]), Image.Resampling.BILINEAR)
     rgb = np.asarray(image, dtype=np.float32)
     lum = 0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]
     lo, hi = np.percentile(lum, (2, 98))
@@ -72,7 +76,7 @@ def _slope_deg(hm: Heightmap) -> np.ndarray:
     return np.degrees(np.arctan(np.hypot(dz_dx, dz_dy))).astype(np.float32)
 
 
-def build_safety(hm: Heightmap) -> SafetyGrid:
+def build_safety(hm: Heightmap, layers: dict[str, bytes] | None = None) -> SafetyGrid:
     """Scores for every pixel of a heightmap. Arrays are float32 in 0..1 except slope and roughness."""
     slope = _slope_deg(hm)
     km_ns, _km_ew = hm.km_per_px
@@ -104,13 +108,14 @@ def build_safety(hm: Heightmap) -> SafetyGrid:
     polar = np.clip((np.abs(hm.lats)[:, None] - 55.0) / 35.0, 0.0, 1.0)
     shadow = np.clip(0.75 * steep_shadow + 0.55 * polar, 0.0, 1.0)
     body_key = hm.body.name.lower()
+    layers = layers or {}
     if body_key == "moon":
-        cold = _layer_index(body_key, "ice-water", hm.shape)
+        cold = _layer_index(body_key, "ice-water", hm.shape, layers.get("ice-water"))
         if cold is not None:
             shadow = np.maximum(shadow, cold * 0.85)
     shadow = np.where(hm.valid, np.clip(shadow, 0.0, 1.0), 1.0).astype(np.float32)
 
-    radiation = _layer_index(body_key, "radiation", hm.shape)
+    radiation = _layer_index(body_key, "radiation", hm.shape, layers.get("radiation"))
     if radiation is None:
         radiation = np.full(hm.shape, 0.5, dtype=np.float32)
     radiation = np.where(hm.valid, radiation, 1.0).astype(np.float32)

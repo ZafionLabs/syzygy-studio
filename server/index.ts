@@ -69,6 +69,7 @@ function proxy(req: import("node:http").IncomingMessage, reqUrl: URL, res: impor
   const headers: Record<string, string> = {};
   if (req.headers["content-type"]) headers["content-type"] = String(req.headers["content-type"]);
   if (req.headers["content-length"]) headers["content-length"] = String(req.headers["content-length"]);
+  if (req.headers.cookie) headers.cookie = String(req.headers.cookie);
   const preq = httpRequest(dest, { method: req.method || "GET", headers }, (pres) => {
     const chunks: Buffer[] = [];
     pres.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -83,11 +84,14 @@ function proxy(req: import("node:http").IncomingMessage, reqUrl: URL, res: impor
           console.error("search save failed");
         }
       }
-      res.writeHead(status, {
+      const responseHeaders: Record<string, string | string[] | number> = {
         "content-type": String(pres.headers["content-type"] || "application/octet-stream"),
         "content-length": body.length,
         "cache-control": String(pres.headers["cache-control"] || "no-store"),
-      });
+      };
+      const setCookie = pres.headers["set-cookie"];
+      if (setCookie) responseHeaders["set-cookie"] = setCookie;
+      res.writeHead(status, responseHeaders);
       res.end(body);
       })().catch(() => {
         if (!res.headersSent) sendJson(res, 500, { error: "request failed" });

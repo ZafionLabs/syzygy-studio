@@ -106,17 +106,25 @@ def _as_elevation_npz(raw: bytes, filename: str) -> bytes:
     return _elevation_npz(raw)
 
 
-def install_map(body: str, kind: str, raw: bytes, filename: str = "", update_dir: Path | None = None) -> dict:
-    """Validate ``raw`` and save it so this body uses it instead of the bundled map."""
+def prepare_map(body: str, kind: str, raw: bytes, filename: str = "") -> dict:
+    """Validate ``raw`` and return the bytes to use for one browser visit."""
     body, kind = _check_body_kind(body, kind)
-    update_dir = UPDATE_DIR if update_dir is None else update_dir
-    update_dir.mkdir(parents=True, exist_ok=True)
     if kind == "elevation":
         payload = _as_elevation_npz(raw, filename)
         name = f"{body}_elevation.npz"
     else:
         payload = _layer_png(raw)
         name = f"{body}_{kind}.png"
+    return {"body": body, "kind": kind, "file": name, "bytes": len(payload), "payload": payload}
+
+
+def install_map(body: str, kind: str, raw: bytes, filename: str = "", update_dir: Path | None = None) -> dict:
+    """Validate ``raw`` and save it so this body uses it instead of the bundled map."""
+    prepared = prepare_map(body, kind, raw, filename)
+    update_dir = UPDATE_DIR if update_dir is None else update_dir
+    update_dir.mkdir(parents=True, exist_ok=True)
+    payload = prepared.pop("payload")
+    name = prepared["file"]
     path = update_dir / name
     temporary = path.with_suffix(path.suffix + ".part")
     temporary.write_bytes(payload)

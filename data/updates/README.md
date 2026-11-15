@@ -12,5 +12,5 @@ An elevation `.npz` needs an `elevation` array in metres. `lat_range` and `lon_r
 and default to the whole globe. A science map is a PNG in the same simple-cylindrical frame as the
 built-in maps: north at the top, 180° west at the left.
 
-You can also open **Place maps** and drop the file on that map. The originals in `data/dem`
+A file dropped under **Place maps** in the app lasts for that browser visit only. A file placed in this folder is used for everyone after the terrain service restarts. The originals in `data/dem`
 and `data/layers` stay as they are.

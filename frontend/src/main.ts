@@ -1299,11 +1299,12 @@ async function init() {
     ["light", "Light"],
     ["radiation", "Radiation"],
   ];
+  let sessionMaps: MapUpdate[] = [];
   const paintPlaceSpots = () => {
     document.querySelectorAll<HTMLElement>("#placeGrid .spot").forEach((spot) => {
-      const row = INFO?.updates?.find((item) => item.body === spot.dataset.body && item.kind === spot.dataset.kind);
+      const row = sessionMaps.find((item) => item.body === spot.dataset.body && item.kind === spot.dataset.kind);
       const state = spot.querySelector(".state");
-      if (state) state.textContent = row ? `Using ${row.file}` : "Bundled map";
+      if (state) state.textContent = row ? `Using ${row.file} for this visit` : "Bundled map";
       spot.classList.toggle("using", Boolean(row));
     });
   };
@@ -1314,18 +1315,22 @@ async function init() {
       headers: { "content-type": "application/octet-stream" },
       body: file,
     });
-    const payload = await response.json() as { error?: string; file?: string };
+    const payload = await response.json() as { error?: string; file?: string; updates?: MapUpdate[] };
     if (!response.ok) {
       state.textContent = payload.error || "That map could not be used.";
       return;
     }
-    INFO = await api<Info>("/api/info");
+    sessionMaps = payload.updates ?? sessionMaps;
     mapStamp += 1;
     mapImages.clear();
     safetyGrids.clear();
     safetyReady.clear();
     paintPlaceSpots();
   };
+  void api<{ updates?: MapUpdate[] }>("/api/maps").then((listed) => {
+    sessionMaps = listed.updates ?? [];
+    paintPlaceSpots();
+  }).catch(() => { /* the spots stay on the bundled map */ });
   const grid = $("#placeGrid");
   for (const key of ["earth", "moon", "mars"].filter((name) => bodies()[name])) {
     const column = document.createElement("div");
