@@ -2,9 +2,10 @@
 
 A file in ``data/updates`` is used instead of the bundled map for that body.
 Elevation is a NumPy ``.npz`` with an ``elevation`` array in metres, plus
-optional ``lat_range`` and ``lon_range``. Every other map is a PNG in the same
+optional ``lat_range`` and ``lon_range``. Every other map is an image in the same
 simple-cylindrical frame as the built-in maps: north at the top, 180°W at the left,
-twice as wide as it is tall. A photograph or any other picture is refused.
+twice as wide as it is tall. PNG, JPEG, and any other image format the server can
+read are accepted. A picture that is not that shape is refused.
 """
 
 from __future__ import annotations
@@ -89,24 +90,17 @@ def _looks_like_picture(raw: bytes) -> bool:
 def _layer_png(raw: bytes) -> bytes:
     if len(raw) > MAX_BYTES:
         raise ValueError("map is larger than 80 MB")
-    if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
-        if _looks_like_picture(raw):
-            raise ValueError(
-                "That file is a picture, not a map. Drop a PNG of the whole body, twice as wide as it is tall, "
-                "with north at the top and 180° west at the left."
-            )
-        raise ValueError("That file is not a PNG map.")
     try:
         image = Image.open(io.BytesIO(raw))
         image.load()
     except Exception as exc:
-        raise ValueError("that file is not an image the bot can read") from exc
+        raise ValueError("That file is not an image the bot can read.") from exc
     if image.width > 8192 or image.height > 8192:
         raise ValueError("map image must be at most 8192 pixels on each side")
     ratio = image.width / image.height
     if image.height < 64 or image.width < 128 or abs(ratio - 2.0) > 0.05:
         raise ValueError(
-            "That picture is not a global map. It has to be a PNG twice as wide as it is tall, "
+            "That picture is not a global map. It has to be twice as wide as it is tall, "
             "at least 128 by 64 pixels, with north at the top and 180° west at the left."
         )
     out = io.BytesIO()

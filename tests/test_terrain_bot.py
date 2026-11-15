@@ -360,7 +360,7 @@ def test_prepare_map_refuses_pictures():
 
     photo = io.BytesIO()
     Image.new("RGB", (400, 300), (9, 9, 9)).save(photo, format="JPEG")
-    with pytest.raises(ValueError, match="picture"):
+    with pytest.raises(ValueError, match="not a global map"):
         prepare_map("mars", "geology", photo.getvalue(), "shot.jpg")
     with pytest.raises(ValueError, match="picture"):
         prepare_map("mars", "elevation", photo.getvalue(), "shot.jpg")
@@ -372,6 +372,11 @@ def test_prepare_map_refuses_pictures():
     Image.new("RGB", (128, 64), (4, 5, 6)).save(wide, format="PNG")
     saved = prepare_map("mars", "weather", wide.getvalue(), "weather.png")
     assert saved["file"] == "mars_weather.png"
+    for name, fmt in (("heat.jpg", "JPEG"), ("heat.jpeg", "JPEG")):
+        packed = io.BytesIO()
+        Image.new("RGB", (160, 80), (7, 8, 9)).save(packed, format=fmt)
+        placed = prepare_map("moon", "radiation", packed.getvalue(), name)
+        assert placed["file"] == "moon_radiation.png"
 
 
 def test_new_map_replaces_the_bundled_one(tmp_path, monkeypatch):
@@ -438,6 +443,14 @@ def test_new_map_replaces_the_bundled_one(tmp_path, monkeypatch):
         with pytest.raises(HTTPError) as square_err:
             opener.open(Request(base + "/api/maps?body=moon&kind=radiation&name=snapshot.png", data=square.getvalue(), method="POST"))
         assert square_err.value.code == 400
+        jpeg_map = io.BytesIO()
+        Image.new("RGB", (160, 80), (8, 9, 10)).save(jpeg_map, format="JPEG")
+        jpeg_saved = json.load(opener.open(Request(
+            base + "/api/maps?body=moon&kind=geology&name=geo.jpeg",
+            data=jpeg_map.getvalue(),
+            method="POST",
+        )))
+        assert jpeg_saved["file"] == "moon_geology.png"
         still = json.load(opener.open(base + "/api/height?body=moon&lat=0&lon=0"))
         assert still["elevation_m"] == pytest.approx(7777)
     finally:
