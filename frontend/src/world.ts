@@ -552,6 +552,24 @@ function buildMesh(data: Ground, topo: THREE.Texture, overlay: THREE.Texture, mi
   scene.add(mesh);
 }
 
+function earthUrl(lat: number, lon: number) {
+  const wrapped = ((lon + 180) % 360 + 360) % 360 - 180;
+  return `https://earth.google.com/web/@${lat.toFixed(5)},${wrapped.toFixed(5)},0a,2500d,0y,60h,0t,0r`;
+}
+
+function showEarth(spot: WorldSpot) {
+  loop(false);
+  $<HTMLCanvasElement>("#worldCanvas").hidden = true;
+  $<HTMLElement>("#worldLegend").hidden = true;
+  $<HTMLElement>("#worldLayers").hidden = true;
+  const live = $<HTMLAnchorElement>("#earthLive");
+  live.hidden = false;
+  live.href = earthUrl(spot.lat, spot.lon);
+  $<HTMLElement>("#earthCoords").textContent = fmtLL(spot.lat, spot.lon);
+  $<HTMLElement>("#worldWhere").textContent = `Earth · ${fmtLL(spot.lat, spot.lon)}`;
+  $<HTMLElement>("#worldHint").textContent = "This opens earth.google.com at this place. Google Earth cannot be drawn inside this page.";
+}
+
 function patchQuery(spot: WorldSpot) {
   if (bodyKey(spot.body) !== "earth") return "";
   return "&km=16&px=2048&samples=140";
@@ -578,6 +596,13 @@ async function showSpot(reset: boolean) {
     return;
   }
   panel.hidden = false;
+  if (bodyKey(spot.body) === "earth") {
+    showEarth(spot);
+    return;
+  }
+  $<HTMLCanvasElement>("#worldCanvas").hidden = false;
+  $<HTMLElement>("#earthLive").hidden = true;
+  $<HTMLElement>("#worldLayers").hidden = false;
   ensureRenderer();
   const generation = ++buildToken;
   const paint = ++colorToken;
