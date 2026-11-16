@@ -714,11 +714,43 @@ const slotOf = (body: string) => Object.entries(slots()).find(([, b]) => b === b
 const otherOf = (body: string) => (slots().A === body ? slots().B : slots().A);
 const params = () => `mode=terrain&source=${source()}&surface=${val("#surface")}`;
 
-async function api<T>(path: string): Promise<T> {
-  const r = await fetch(path);
-  const j = await r.json() as { error?: string };
-  if (!r.ok) throw new Error(j.error || r.statusText);
-  return j as T;
+async function api<T>(path: string, attempt = 0, signal?: AbortSignal): Promise<T> {
+  if (signal?.aborted) throw new DOMException("aborted", "AbortError");
+  const wait = (ms: number) => new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timer);
+      reject(new DOMException("aborted", "AbortError"));
+    }, { once: true });
+  });
+  let response: Response;
+  try {
+    response = await fetch(path, { signal });
+  } catch (error) {
+    if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
+    if (attempt < 2) {
+      await wait(350 * (attempt + 1));
+      return api(path, attempt + 1, signal);
+    }
+    throw new Error("The map service did not answer. Try that spot again.");
+  }
+  const text = await response.text();
+  let payload: { error?: string } | null = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text) as { error?: string };
+    } catch {
+      payload = null;
+    }
+  }
+  if (!response.ok || payload == null || typeof payload !== "object") {
+    if (attempt < 2 && (response.status === 502 || response.status === 503 || response.status === 504 || payload == null)) {
+      await wait(350 * (attempt + 1));
+      return api(path, attempt + 1, signal);
+    }
+    throw new Error(payload?.error || "The map service did not answer. Try that spot again.");
+  }
+  return payload as T;
 }
 
 function mapWrapOf(ev: Event) {
@@ -909,6 +941,7 @@ const rerun = () => (lastQuery && slotOf(lastQuery.body) ? runQuery(lastQuery.bo
 function wireMap(slot: string) {
   const wrap = $(`#map-${slot}`);
   let pending: ReturnType<typeof setTimeout> | undefined;
+  let hoverAbort: AbortController | null = null;
   let pressed: HTMLElement | null = null;
   let drag: { x: number; y: number; panX: number; panY: number; moved: boolean; pointer: number; box: HTMLElement } | null = null;
   wrap.addEventListener("mousemove", (ev) => {
@@ -918,8 +951,11 @@ function wireMap(slot: string) {
     const { lat, lon } = point;
     clearTimeout(pending);
     pending = setTimeout(async () => {
+      hoverAbort?.abort();
+      const controller = new AbortController();
+      hoverAbort = controller;
       try {
-        const h = await api<{ surface: string; safety?: SafetyCell }>(`/api/height?body=${body}&lat=${lat}&lon=${lon}&source=${source()}`);
+        const h = await api<{ surface: string; safety?: SafetyCell }>(`/api/height?body=${body}&lat=${lat}&lon=${lon}&source=${source()}`, 0, controller.signal);
         const safety = h.safety;
         const levels = safety ? { hazard: safety.hazard, sun: safety.sunlight, shadow: safety.shadow, rad: safety.radiation } : null;
         const flags = levels ? highRisks(levels) : [];
@@ -927,8 +963,10 @@ function wireMap(slot: string) {
         const scoreText = score == null ? "" : ` Landing safety ${score.toFixed(0)}%.`;
         const risks = flags.length ? ` ${highRiskSentence(flags)}` : "";
         $(`#hover-${slot}`).textContent = `${fmtLL(lat, lon)}: ${h.surface}.${scoreText}${risks}`;
-      } catch { /* hover is best-effort */ }
-    }, 60);
+      } catch (error) {
+        if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return;
+      }
+    }, 120);
   });
   wrap.addEventListener("pointerdown", (ev) => {
     const box = mapWrapOf(ev);

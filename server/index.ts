@@ -98,7 +98,12 @@ function proxy(req: import("node:http").IncomingMessage, reqUrl: URL, res: impor
       });
     });
   });
-  preq.on("error", () => sendJson(res, 502, { error: "terrain service unavailable" }));
+  preq.on("error", () => {
+    if (!res.headersSent) sendJson(res, 502, { error: "The map service did not answer. Try that spot again." });
+  });
+  res.on("close", () => {
+    if (!res.writableEnded) preq.destroy();
+  });
   req.pipe(preq);
 }
 

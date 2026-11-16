@@ -479,6 +479,22 @@ def test_new_map_replaces_the_bundled_one(tmp_path, monkeypatch):
         server.shutdown()
 
 
+def test_safety_grid_is_shared_across_simultaneous_lookups():
+    from concurrent.futures import ThreadPoolExecutor
+
+    from terrain_bot.web import TerrainApp
+
+    app = TerrainApp(
+        {"images": {"moon": heightmap_from_array(_synthetic_terrain(seed=3), MOON), "earth": heightmap_from_array(_synthetic_terrain(seed=4), EARTH)}},
+        MatchConfig(),
+        default_source="images",
+        online=False,
+    )
+    with ThreadPoolExecutor(6) as pool:
+        grids = list(pool.map(lambda _: app.safety_grid("moon")[0], range(6)))
+    assert all(grid is grids[0] for grid in grids)
+
+
 def test_ground_patch_matches_the_map_window():
     import io
 

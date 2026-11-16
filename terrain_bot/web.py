@@ -8,6 +8,7 @@ import math
 import re
 import secrets
 import threading
+import traceback
 from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -118,6 +119,7 @@ class TerrainApp:
         self._top: dict[tuple, dict] = {}
         self._lock = threading.RLock()
         self._safety: dict[str, tuple[object, bytes]] = {}
+        self._safety_wait: dict[tuple[int, str], threading.Event] = {}
         self._sessions: OrderedDict[str, _Visit] = OrderedDict()
         self._pngs = {
             (src, body): render_map_png(hm, CMAPS.get(body, "viridis"))
@@ -127,6 +129,15 @@ class TerrainApp:
         self._info = self._build_info()
         bodies = list(self.datasets[default_source])
         self.top(8, config.mode, default_source, "any", bodies[0], bodies[1])
+        threading.Thread(target=self._prewarm_safety, daemon=True).start()
+
+    def _prewarm_safety(self) -> None:
+        maps = self.datasets.get("dem") or self.datasets.get(self.default_source) or {}
+        for body in maps:
+            try:
+                self.safety_grid(body)
+            except Exception:
+                traceback.print_exc()
 
     def _source(self, source: str | None) -> str:
         source = source or self.default_source
@@ -331,13 +342,35 @@ class TerrainApp:
         with self._lock:
             store = visit.safety if personal and visit is not None else self._safety
             cached = store.get(body)
-            if cached is None:
-                hm = self._safety_hm(body, session_id)
-                layers = {kind: data for (owner, kind), data in visit.layers.items() if owner == body} if personal and visit is not None else None
-                grid = build_safety(hm, layers)
-                cached = (grid, encode_png(grid))
-                store[body] = cached
-            return cached
+            if cached is not None:
+                return cached
+            key = (id(store), body)
+            event = self._safety_wait.get(key)
+            leader = event is None
+            if leader:
+                event = threading.Event()
+                self._safety_wait[key] = event
+        if not leader:
+            event.wait()
+            with self._lock:
+                cached = store.get(body)
+            if cached is not None:
+                return cached
+        hm = self._safety_hm(body, session_id)
+        layers = {kind: data for (owner, kind), data in visit.layers.items() if owner == body} if personal and visit is not None else None
+        try:
+            grid = build_safety(hm, layers)
+            cached = (grid, encode_png(grid))
+        except Exception:
+            with self._lock:
+                self._safety_wait.pop(key, None)
+            event.set()
+            raise
+        with self._lock:
+            store[body] = cached
+            self._safety_wait.pop(key, None)
+        event.set()
+        return cached
 
     def safety_png(self, body: str, session_id: str = "") -> bytes:
         return self.safety_grid(body, session_id)[1]
@@ -534,6 +567,12 @@ def make_handler(app: TerrainApp):
                     self._json(404, {"error": "not found"})
             except (ValueError, KeyError) as exc:
                 self._json(400, {"error": str(exc) if not isinstance(exc, KeyError) else f"missing {exc}"})
+            except Exception:
+                traceback.print_exc()
+                try:
+                    self._json(500, {"error": "The map service could not answer. Try that spot again."})
+                except Exception:
+                    pass
 
         def do_POST(self):
             url = urlparse(self.path)
@@ -556,6 +595,12 @@ def make_handler(app: TerrainApp):
                 self._json(200, app.remember_map(session, prepared), session_cookie=session if minted else "")
             except (ValueError, KeyError) as exc:
                 self._json(400, {"error": str(exc) if not isinstance(exc, KeyError) else f"missing {exc}"})
+            except Exception:
+                traceback.print_exc()
+                try:
+                    self._json(500, {"error": "The map service could not answer. Try that spot again."})
+                except Exception:
+                    pass
 
     return Handler
 
