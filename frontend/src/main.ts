@@ -1,5 +1,5 @@
 import { mapLegendRow } from "./maplegend.ts";
-import { anchorPreview, parkPreview, refreshWorldMap, setPreviewWorld } from "./world.ts";
+import { refreshWorldMap, setPreviewWorld } from "./world.ts";
 
 type BodyInfo = {
   name: string;
@@ -1150,7 +1150,6 @@ function legendOne(key: string, id: string) {
 }
 
 function syncFrames(slot: string, key: string) {
-  parkPreview();
   const stack = $(`#map-${slot}`);
   const ids = usableLayers(key);
   stack.querySelectorAll<HTMLElement>(".mapframe").forEach((frame) => {
@@ -1160,7 +1159,6 @@ function syncFrames(slot: string, key: string) {
   stack.querySelector(":scope > .note")?.remove();
   if (!ids.length) {
     stack.insertAdjacentHTML("beforeend", `<p class="note">None of the selected maps are available for this body.</p>`);
-    anchorPreview();
     return;
   }
   for (const id of ids) {
@@ -1180,7 +1178,6 @@ function syncFrames(slot: string, key: string) {
     stack.appendChild(frame);
   }
   applyView(slot);
-  anchorPreview();
 }
 
 function schedulePaint() {

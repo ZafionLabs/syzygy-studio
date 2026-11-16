@@ -97,29 +97,16 @@
   </section>
 
   <section class="panel" id="worldPanel" hidden>
-    <h2>Preview world <small id="worldWhere"></small></h2>
-    <div id="worldDock">
-    <div id="worldStage">
-      <div class="world-bar">
-        <div class="toggle" id="worldPlace" role="group" aria-label="Which place">
-          <button type="button" data-side="a">Your point</button>
-          <button type="button" data-side="b" class="on">Match</button>
-        </div>
-        <div class="world-layers" id="worldLayers" role="group" aria-label="Map overlay"></div>
+    <h2>Google Maps <small id="worldWhere"></small></h2>
+    <div class="world-bar">
+      <div class="toggle" id="worldPlace" role="group" aria-label="Which place">
+        <button type="button" data-side="a">Your point</button>
+        <button type="button" data-side="b" class="on">Match</button>
       </div>
-      <a id="earthLive" class="earth-live" hidden target="_blank" rel="noopener noreferrer">
-        <span>Open this place in Google Earth</span>
-        <strong id="earthCoords"></strong>
-        <small>earth.google.com</small>
-      </a>
-      <canvas id="worldCanvas" tabindex="0" aria-label="Rover view of this place"></canvas>
-      <div id="worldLegend" class="world-legend" hidden>
-        <div class="legend" id="legendItems"></div>
-        <div id="legendHere"></div>
-      </div>
+      <a id="earthLive" class="earth-open" hidden target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
     </div>
-    </div>
-    <p class="note" id="worldHint">Click the view, then turn with the mouse. W A S D drives the rover. Shift is faster.</p>
+    <iframe id="googleMap" title="Google Maps" hidden referrerpolicy="no-referrer-when-downgrade"></iframe>
+    <p class="note" id="worldHint"></p>
   </section>
 
   <section class="panel">
