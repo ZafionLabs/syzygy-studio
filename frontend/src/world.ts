@@ -763,7 +763,7 @@ function legendFor(body: string): { title: string; rows: Swatch[] } {
         rows: [
           { color: "#184e91", label: "Ocean" },
           { color: "#bad6e6", label: "Ice" },
-          { color: "#92dcb7", label: "A rock unit" },
+          { color: "#92dcb7", label: "Other kinds of rock" },
         ],
       },
       weather: {
@@ -803,9 +803,9 @@ function legendFor(body: string): { title: string; rows: Swatch[] } {
       geology: {
         title: "Geology",
         rows: [
-          { color: "#f20d0d", label: "A rock unit" },
-          { color: "#fcdc0a", label: "A different unit" },
-          { color: "#a6d6ff", label: "A different unit" },
+          { color: "#ff3361", label: "Lava plains" },
+          { color: "#fcdc0a", label: "Debris from craters" },
+          { color: "#a6d6ff", label: "Older cratered ground" },
         ],
       },
       light: {
