@@ -98,14 +98,15 @@
 
   <section class="panel" id="worldPanel" hidden>
     <h2>Preview world <small id="worldWhere"></small></h2>
-    <div class="world-bar">
-      <div class="toggle" id="worldPlace" role="group" aria-label="Which place">
-        <button type="button" data-side="a">Your point</button>
-        <button type="button" data-side="b" class="on">Match</button>
-      </div>
-      <div class="world-layers" id="worldLayers" role="group" aria-label="Map overlay"></div>
-    </div>
+    <div id="worldDock">
     <div id="worldStage">
+      <div class="world-bar">
+        <div class="toggle" id="worldPlace" role="group" aria-label="Which place">
+          <button type="button" data-side="a">Your point</button>
+          <button type="button" data-side="b" class="on">Match</button>
+        </div>
+        <div class="world-layers" id="worldLayers" role="group" aria-label="Map overlay"></div>
+      </div>
       <a id="earthLive" class="earth-live" hidden target="_blank" rel="noopener noreferrer">
         <span>Open this place in Google Earth</span>
         <strong id="earthCoords"></strong>
@@ -113,11 +114,10 @@
       </a>
       <canvas id="worldCanvas" tabindex="0" aria-label="Rover view of this place"></canvas>
       <div id="worldLegend" class="world-legend" hidden>
-        <div id="legendTitle"></div>
-        <ul id="legendItems"></ul>
-        <div id="legendNote"></div>
+        <div class="legend" id="legendItems"></div>
         <div id="legendHere"></div>
       </div>
+    </div>
     </div>
     <p class="note" id="worldHint">Click the view, then turn with the mouse. W A S D drives the rover. Shift is faster.</p>
   </section>

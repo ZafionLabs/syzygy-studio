@@ -1,4 +1,5 @@
-import { refreshWorldMap, setPreviewWorld } from "./world.ts";
+import { mapLegendRow } from "./maplegend.ts";
+import { anchorPreview, parkPreview, refreshWorldMap, setPreviewWorld } from "./world.ts";
 
 type BodyInfo = {
   name: string;
@@ -143,17 +144,6 @@ const $ = <T extends HTMLElement = HTMLElement>(sel: string) => {
 const val = (sel: string) => (document.querySelector(sel) as HTMLInputElement | HTMLSelectElement).value;
 
 let INFO: Info | null = null;
-const GRADIENTS: Record<string, string> = {
-  earth: "linear-gradient(90deg,#000000,#1f4a7a,#2f8a7a,#5aa85a,#a8a855,#c8a87a,#fdfdfd)",
-  moon: "linear-gradient(90deg,#00224e,#575d6d,#a59c74,#fee838)",
-  mars: "linear-gradient(90deg,#000000,#7f4f32,#ff9f65,#ffc77f)",
-};
-const RAMPS: Record<string, string> = {
-  heat: "linear-gradient(90deg,#000004,#420a68,#932667,#dd513a,#fca50a,#fcffa4)",
-  rain: "linear-gradient(90deg,#102018,#1a7a32,#c8e020,#f0a020,#e02020)",
-  dust: "linear-gradient(90deg,#2a2118,#c47832,#f0c060,#fff4d0)",
-  photo: "transparent",
-};
 const LANDMARK_LABELS: Record<string, string> = {
   "earth,highest": "Everest", "earth,lowest": "Mariana Trench",
   "moon,highest": "Selenean summit", "moon,lowest": "Antoniadi crater",
@@ -1146,18 +1136,21 @@ function legendHtml(key: string) {
 function legendOne(key: string, id: string) {
   const b = bodies()[key];
   if (id === "elevation") {
-    return `<div class="legend-row"><span class="name">Elevation</span><span class="bar" style="background:${GRADIENTS[key] || GRADIENTS.moon}"></span><span>${esc(fmtM(b.color_min_m))}</span><span>${esc(fmtM(b.color_max_m))}</span></div>`;
+    return mapLegendRow({ name: "Elevation", body: key, low: fmtM(b.color_min_m), high: fmtM(b.color_max_m) });
   }
   const item = LAYERS?.bodies[key]?.[id];
-  if (!item?.available) {
-    return `<div class="legend-row"><span class="name">${esc(layerLabel(id))} is not available for this body</span></div>`;
-  }
-  const ramp = RAMPS[item.ramp || ""] || GRADIENTS[key] || GRADIENTS.moon;
-  const bar = item.ramp === "photo" ? "" : `<span class="bar" style="background:${ramp}"></span><span>${esc(item.low || "")}</span><span>${esc(item.high || "")}</span>`;
-  return `<div class="legend-row"><span class="name">${esc(item.title || layerLabel(id))}</span>${bar}</div>`;
+  return mapLegendRow({
+    name: item?.title || layerLabel(id),
+    body: key,
+    ramp: item?.ramp,
+    low: item?.low,
+    high: item?.high,
+    available: item?.available === true,
+  });
 }
 
 function syncFrames(slot: string, key: string) {
+  parkPreview();
   const stack = $(`#map-${slot}`);
   const ids = usableLayers(key);
   stack.querySelectorAll<HTMLElement>(".mapframe").forEach((frame) => {
@@ -1167,6 +1160,7 @@ function syncFrames(slot: string, key: string) {
   stack.querySelector(":scope > .note")?.remove();
   if (!ids.length) {
     stack.insertAdjacentHTML("beforeend", `<p class="note">None of the selected maps are available for this body.</p>`);
+    anchorPreview();
     return;
   }
   for (const id of ids) {
@@ -1186,6 +1180,7 @@ function syncFrames(slot: string, key: string) {
     stack.appendChild(frame);
   }
   applyView(slot);
+  anchorPreview();
 }
 
 function schedulePaint() {

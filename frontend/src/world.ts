@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mapLegendRow } from "./maplegend.ts";
 
 export type WorldSpot = { body: string; lat: number; lon: number };
 
@@ -16,7 +17,18 @@ type Ground = {
   elevation_m: number[];
 };
 
-type LayerFact = { title: string; low: string; high: string; ramp: string };
+type LayerInfo = {
+  available?: boolean;
+  title?: string;
+  low?: string;
+  high?: string;
+  ramp?: string;
+};
+
+type LayerCatalog = {
+  layers: { id: string; label: string }[];
+  bodies: Record<string, Record<string, LayerInfo>>;
+};
 
 const DRIVE_KM_S = 5;
 const SPRINT_KM_S = 16;
@@ -39,7 +51,8 @@ let sunLight: THREE.DirectionalLight | null = null;
 let ambient: THREE.AmbientLight | null = null;
 let ground: Ground | null = null;
 let heights: Float32Array | null = null;
-let facts: Record<string, Record<string, LayerFact>> = {};
+let catalog: LayerCatalog | null = null;
+let colorRange: Record<string, { low: string; high: string }> = {};
 let raf = 0;
 let yaw = 0;
 let orbit = 0.42;
@@ -557,17 +570,57 @@ function earthUrl(lat: number, lon: number) {
   return `https://earth.google.com/web/@${lat.toFixed(5)},${wrapped.toFixed(5)},0a,2500d,0y,60h,0t,0r`;
 }
 
-function showEarth(spot: WorldSpot) {
-  loop(false);
-  $<HTMLCanvasElement>("#worldCanvas").hidden = true;
-  $<HTMLElement>("#worldLegend").hidden = true;
-  $<HTMLElement>("#worldLayers").hidden = true;
+function updateEarthLink(spot: WorldSpot | null) {
   const live = $<HTMLAnchorElement>("#earthLive");
+  if (!spot || bodyKey(spot.body) !== "earth") {
+    live.hidden = true;
+    return;
+  }
   live.hidden = false;
   live.href = earthUrl(spot.lat, spot.lon);
   $<HTMLElement>("#earthCoords").textContent = fmtLL(spot.lat, spot.lon);
-  $<HTMLElement>("#worldWhere").textContent = `Earth · ${fmtLL(spot.lat, spot.lon)}`;
-  $<HTMLElement>("#worldHint").textContent = "This opens earth.google.com at this place. Google Earth cannot be drawn inside this page.";
+}
+
+function mapWrap(body: string, layerId: string) {
+  for (const slot of ["A", "B", "C"]) {
+    const title = document.querySelector(`#title${slot}`)?.textContent?.trim().toLowerCase();
+    if (title !== body.toLowerCase()) continue;
+    return document.querySelector(`#map-${slot} .mapframe[data-layer="${CSS.escape(layerId)}"] .mapwrap`)
+      || document.querySelector(`#map-${slot} .mapframe[data-layer="elevation"] .mapwrap`)
+      || document.querySelector(`#map-${slot} .mapwrap`);
+  }
+  return null;
+}
+
+export function parkPreview() {
+  const stage = document.querySelector("#worldStage");
+  const home = document.querySelector("#worldDock");
+  if (!stage || !home || stage.parentElement === home) return;
+  home.appendChild(stage);
+  stage.classList.remove("on-map");
+}
+
+export function anchorPreview() {
+  const stage = document.querySelector("#worldStage");
+  const home = document.querySelector("#worldDock");
+  const spot = currentSpot();
+  const panel = document.querySelector("#worldPanel");
+  if (!stage || !home) return;
+  if (!spot || (panel instanceof HTMLElement && panel.hidden)) {
+    parkPreview();
+    return;
+  }
+  const target = mapWrap(spot.body, layer);
+  if (!target) {
+    parkPreview();
+    return;
+  }
+  target.appendChild(stage);
+  stage.classList.add("on-map");
+  const canvas = $<HTMLCanvasElement>("#worldCanvas");
+  const width = canvas.clientWidth || target.clientWidth;
+  const height = canvas.clientHeight || target.clientHeight;
+  if (width > 0 && height > 0) renderer?.setSize(width, height, false);
 }
 
 function patchQuery(spot: WorldSpot) {
@@ -596,13 +649,9 @@ async function showSpot(reset: boolean) {
     return;
   }
   panel.hidden = false;
-  if (bodyKey(spot.body) === "earth") {
-    showEarth(spot);
-    return;
-  }
   $<HTMLCanvasElement>("#worldCanvas").hidden = false;
-  $<HTMLElement>("#earthLive").hidden = true;
   $<HTMLElement>("#worldLayers").hidden = false;
+  updateEarthLink(spot);
   ensureRenderer();
   const generation = ++buildToken;
   const paint = ++colorToken;
@@ -631,7 +680,8 @@ async function showSpot(reset: boolean) {
     }
     applyAtmosphere(spot.body);
     paintLegend();
-    hint.textContent = "Click the view, then turn with the mouse. W A S D drives the rover over the real ground. Shift is faster. Esc lets the mouse go.";
+    anchorPreview();
+    hint.textContent = "The rover is drawn on this body's map. Click that view, then turn with the mouse. W A S D drives. Shift is faster. Esc lets the mouse go.";
     $<HTMLElement>("#worldWhere").textContent = `${spot.body} · ${fmtLL(spot.lat, spot.lon)}`;
     loop(true);
     renderer?.setSize($<HTMLCanvasElement>("#worldCanvas").clientWidth, $<HTMLCanvasElement>("#worldCanvas").clientHeight, false);
@@ -673,6 +723,7 @@ function wire() {
     if (!(button instanceof HTMLButtonElement)) return;
     side = button.dataset.side === "a" ? "a" : "b";
     document.querySelectorAll("#worldPlace button").forEach((item) => item.classList.toggle("on", item === button));
+    parkPreview();
     void showSpot(true);
   });
   $<HTMLElement>("#worldLayers").addEventListener("click", (event) => {
@@ -680,6 +731,7 @@ function wire() {
     if (!(button instanceof HTMLButtonElement) || !button.dataset.layer) return;
     layer = button.dataset.layer;
     document.querySelectorAll("#worldLayers button").forEach((item) => item.classList.toggle("on", item === button));
+    anchorPreview();
     void swapColor();
   });
   const canvas = $<HTMLCanvasElement>("#worldCanvas");
@@ -714,147 +766,27 @@ function fmtM(metres: number) {
   return `${sign}${Math.abs(Math.round(metres)).toLocaleString()} m`;
 }
 
-type Swatch = { color: string; label: string };
-
-const INFERNO: Swatch[] = [
-  { color: "#000004", label: "" },
-  { color: "#bb3754", label: "" },
-  { color: "#fcfea4", label: "" },
-];
-
-function heatRows(low: string, high: string): Swatch[] {
-  return [
-    { color: INFERNO[0].color, label: low },
-    { color: INFERNO[1].color, label: "in between" },
-    { color: INFERNO[2].color, label: high },
-  ];
-}
-
-function legendFor(body: string): { title: string; rows: Swatch[] } {
-  const named: Record<string, Record<string, { title: string; rows: Swatch[] }>> = {
-    earth: {
-      elevation: {
-        title: "Google Earth",
-        rows: [
-          { color: "#3d6b3a", label: "Plants and fields" },
-          { color: "#c2b48a", label: "Bare ground" },
-          { color: "#1d4e89", label: "Water" },
-          { color: "#f4f7fb", label: "Snow, ice, or cloud" },
-        ],
-      },
-      temperature: {
-        title: "Air temperature",
-        rows: [
-          { color: "#5e4fa2", label: "Colder" },
-          { color: "#e55749", label: "Warm" },
-          { color: "#fee593", label: "Warmer" },
-        ],
-      },
-      "ice-water": {
-        title: "Ice and water",
-        rows: [
-          { color: "#0e305c", label: "Ocean" },
-          { color: "#5c4a30", label: "Land" },
-          { color: "#ffffff", label: "Ice or snow" },
-        ],
-      },
-      geology: {
-        title: "Geology",
-        rows: [
-          { color: "#184e91", label: "Ocean" },
-          { color: "#bad6e6", label: "Ice" },
-          { color: "#92dcb7", label: "Other kinds of rock" },
-        ],
-      },
-      weather: {
-        title: "Rain and snow",
-        rows: [
-          { color: "#82aaa8", label: "Lighter rain" },
-          { color: "#c2da0b", label: "Heavier rain" },
-          { color: "#e75623", label: "Heaviest rain" },
-        ],
-      },
-      light: {
-        title: "Reflected sunlight",
-        rows: [
-          { color: "#020514", label: "Ocean and forest" },
-          { color: "#b2895d", label: "Desert" },
-          { color: "#f1f3f2", label: "Ice" },
-        ],
-      },
-      radiation: {
-        title: "Heat leaving Earth",
-        rows: [
-          { color: "#440154", label: "Less heat leaving" },
-          { color: "#2b7100", label: "In between" },
-          { color: "#f5fa0a", label: "More heat leaving" },
-        ],
-      },
-    },
-    moon: {
-      elevation: {
-        title: "Elevation",
-        rows: [
-          { color: "#00224d", label: "Lowest ground" },
-          { color: "#7c7b78", label: "Middle" },
-          { color: "#fde737", label: "Highest ground" },
-        ],
-      },
-      geology: {
-        title: "Geology",
-        rows: [
-          { color: "#ff3361", label: "Lava plains" },
-          { color: "#fcdc0a", label: "Debris from craters" },
-          { color: "#a6d6ff", label: "Older cratered ground" },
-        ],
-      },
-      light: {
-        title: "Reflected sunlight",
-        rows: [
-          { color: "#222222", label: "Dark maria" },
-          { color: "#8a8a8a", label: "Brighter highlands" },
-        ],
-      },
-    },
-    mars: {
-      elevation: {
-        title: "Elevation",
-        rows: [
-          { color: "#000000", label: "Lowest ground" },
-          { color: "#8e5939", label: "Middle" },
-          { color: "#ffc77e", label: "Highest ground" },
-        ],
-      },
-      geology: {
-        title: "Geology",
-        rows: [
-          { color: "#a86c44", label: "Southern highlands" },
-          { color: "#7eac54", label: "Northern plains" },
-          { color: "#dc404e", label: "Volcanic rock" },
-          { color: "#ffd640", label: "Volcanic rock" },
-        ],
-      },
-      weather: {
-        title: "Dust storm",
-        rows: [
-          { color: "#280b53", label: "Clearer air" },
-          { color: "#fcfea4", label: "Thick dust" },
-        ],
-      },
-      light: {
-        title: "Reflected sunlight",
-        rows: [
-          { color: "#584646", label: "Darker ground" },
-          { color: "#d8d0c8", label: "Ice at the poles" },
-        ],
-      },
-    },
-  };
-  const direct = named[body]?.[layer];
-  if (direct) return direct;
-  const fact = facts[body]?.[layer];
-  if (fact) return { title: fact.title, rows: heatRows(fact.low, fact.high) };
-  return { title: layer, rows: [] };
+function legendRows(body: string) {
+  const item = (id: string) => catalog?.bodies[body]?.[id];
+  const label = (id: string) => catalog?.layers.find((entry) => entry.id === id)?.label || id;
+  const rows = [mapLegendRow({
+    name: "Elevation",
+    body,
+    low: colorRange[body]?.low,
+    high: colorRange[body]?.high,
+  })];
+  if (layer !== "elevation") {
+    const fact = item(layer);
+    rows.push(mapLegendRow({
+      name: fact?.title || label(layer),
+      body,
+      ramp: fact?.ramp,
+      low: fact?.low,
+      high: fact?.high,
+      available: fact?.available === true,
+    }));
+  }
+  return rows.join("");
 }
 
 function paintLegend() {
@@ -865,26 +797,26 @@ function paintLegend() {
     return;
   }
   box.hidden = false;
-  const legend = legendFor(bodyKey(spot.body));
-  $<HTMLElement>("#legendTitle").textContent = legend.title;
-  $<HTMLElement>("#legendItems").innerHTML = legend.rows.map((row) =>
-    `<li><i style="background:${row.color}"></i><span>${row.label.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] ?? c))}</span></li>`).join("");
-  const earth = bodyKey(spot.body) === "earth";
-  $<HTMLElement>("#legendNote").textContent = earth
-    ? (layer === "elevation" ? "Google Earth satellite under a real-size rover." : "These colors sit on the Google Earth photo.")
-    : "";
+  $<HTMLElement>("#legendItems").innerHTML = legendRows(bodyKey(spot.body));
   $<HTMLElement>("#legendHere").textContent = `Ground ${fmtM(heightMetres(place.north, place.east))}`;
 }
 
 async function fillLayers() {
   const box = $<HTMLElement>("#worldLayers");
   if (box.childElementCount) return;
-  const catalog = await fetch("/api/layers").then((response) => response.json() as Promise<{
-    layers: { id: string; label: string }[];
-    bodies: Record<string, Record<string, LayerFact>>;
-  }>);
-  facts = catalog.bodies;
-  for (const item of catalog.layers) {
+  const [layers, info] = await Promise.all([
+    fetch("/api/layers").then((response) => response.json() as Promise<LayerCatalog>),
+    fetch("/api/info").then((response) => response.json() as Promise<{
+      sources?: { dem?: { bodies?: Record<string, { color_min_m: number; color_max_m: number }> } };
+    }>),
+  ]);
+  catalog = layers;
+  const bodies = info.sources?.dem?.bodies ?? {};
+  colorRange = Object.fromEntries(Object.entries(bodies).map(([key, body]) => [key, {
+    low: fmtM(body.color_min_m),
+    high: fmtM(body.color_max_m),
+  }]));
+  for (const item of layers.layers) {
     const button = document.createElement("button");
     button.type = "button";
     button.dataset.layer = item.id;
@@ -899,6 +831,7 @@ export function setPreviewWorld(next: { a: WorldSpot; b: WorldSpot } | null) {
   wire();
   if (!next) {
     $<HTMLElement>("#worldPanel").hidden = true;
+    parkPreview();
     loop(false);
     return;
   }
